@@ -180,3 +180,59 @@ async def test_provider_stream_redacts_split_key(monkeypatch):
     )
     value = "".join([part async for part in llm.stream(state, credential, [])])
     assert value == "[REDACTED]"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"choices": []},
+        {"choices": None},
+        {"choices": [{"message": {"content": ["bad-shape"]}}]},
+    ],
+)
+async def test_malformed_provider_response_becomes_safe_error(monkeypatch, payload):
+    state, credential = state_and_credential(False)
+
+    async def validate(*args):
+        return ["8.8.8.8"]
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(llm, "validate_url", validate)
+    monkeypatch.setattr(
+        llm.httpx,
+        "AsyncClient",
+        lambda **kwargs: client_type(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json=payload)),
+            **kwargs,
+        ),
+    )
+    with pytest.raises(AppError) as error:
+        await llm.complete(state, credential, [])
+    assert error.value.code == "provider_unavailable"
+
+
+async def test_redirect_rejected_without_forwarding_key(monkeypatch):
+    state, credential = state_and_credential(False)
+    calls = []
+
+    async def validate(*args):
+        return ["8.8.8.8"]
+
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(
+            307, headers={"Location": "https://other.example.com/steal"}
+        )
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(llm, "validate_url", validate)
+    monkeypatch.setattr(
+        llm.httpx,
+        "AsyncClient",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    with pytest.raises(AppError) as error:
+        await llm.complete(state, credential, [])
+    assert error.value.code == "provider_error"
+    assert len(calls) == 1

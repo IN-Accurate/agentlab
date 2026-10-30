@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import session, require, page, record
 from app.errors import AppError
 from app.models import Project, AppVersion
-from app.schemas import ProjectCreate, VersionCreate, Page, entity
+from app.schemas import ProjectCreate, VersionCreate, Page, ConnectionCreate, entity
 from app.security import validate_url
 
 router = APIRouter(prefix="/v1", tags=["Projects and versions"])
@@ -176,4 +176,36 @@ async def diff(a: UUID, b: UUID, db: AsyncSession = Depends(session)):
         "candidate_version_id": str(b),
         "before": left.config,
         "after": right.config,
+    }
+
+
+@router.post(
+    "/projects/{id}/agent/test-connection",
+    response_model=dict,
+    summary="Check an external model connection",
+)
+async def test_connection(
+    id: UUID,
+    data: ConnectionCreate,
+    request: Request,
+    db: AsyncSession = Depends(session),
+):
+    from app.services.llm import complete
+
+    await require(db, Project, id)
+    if data.agent.type != "openai_compatible":
+        raise AppError(
+            "invalid_agent_type", "Connection checks need an external agent", 422
+        )
+    result = await complete(
+        request.app.state,
+        str(data.credential_id),
+        [{"role": "user", "content": "Reply OK"}],
+        params={"max_tokens": 32},
+        agent=data.agent.model_dump(exclude_none=True),
+    )
+    return {
+        "ok": True,
+        "latency_ms": result["latency_ms"],
+        "model": data.agent.model or "credential default",
     }

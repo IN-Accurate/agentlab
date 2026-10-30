@@ -12,6 +12,27 @@ from app.security import credential_record, decrypt_credential, validate_url
 MAX_RESPONSE_BYTES = 2_000_000
 
 
+def _normalize(data, elapsed):
+    choice = data["choices"][0]
+    message = choice["message"]
+    content = message.get("content") or ""
+    calls = message.get("tool_calls") or []
+    usage = data.get("usage") or {}
+    if (
+        not isinstance(content, str)
+        or not isinstance(calls, list)
+        or not isinstance(usage, dict)
+    ):
+        raise ValueError("Malformed provider response")
+    return {
+        "content": content,
+        "tool_calls": calls,
+        "usage": usage,
+        "finish_reason": choice.get("finish_reason"),
+        "latency_ms": elapsed,
+    }
+
+
 class FakeLLMClient:
     def __init__(self, responses=None):
         self.responses = deque(responses or [])
@@ -68,7 +89,7 @@ class FakeLLMClient:
             )
             return json.dumps({"intent": intent})
         if "task:seed" in lower:
-            count = min(int(payload.get("count", 3)), 20)
+            count = min(int(payload.get("count", 3)), 30)
             return json.dumps(
                 {
                     "items": [
@@ -238,15 +259,8 @@ async def complete(
                     if response.is_error or response.is_redirect:
                         raise _provider_error(state, response, raw)
                 data = json.loads(raw)
-                choice = data["choices"][0]
                 return state.redactor.scrub(
-                    {
-                        "content": choice["message"].get("content") or "",
-                        "tool_calls": choice["message"].get("tool_calls", []),
-                        "usage": data.get("usage", {}),
-                        "finish_reason": choice.get("finish_reason"),
-                        "latency_ms": round((perf_counter() - started) * 1000),
-                    }
+                    _normalize(data, round((perf_counter() - started) * 1000))
                 )
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
         raise AppError(
