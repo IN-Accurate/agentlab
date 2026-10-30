@@ -1,0 +1,1065 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_source": "testlab.api-bridge",
+  "resources": [
+    {
+      "_id": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "_type": "workspace",
+      "parentId": null,
+      "name": "TestLab API bridge - automatic IDs",
+      "scope": "collection",
+      "description": "API bridge only. AI POST requests require a team evaluator; default503. Cleanup DELETE requests last."
+    },
+    {
+      "_id": "env_1bdcdf929cc648178654f837da11cc57",
+      "_type": "environment",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Base Environment",
+      "data": {
+        "base_url": "http://localhost:8000",
+        "trace_id": "9a7d64fe-87ca-456d-a06e-919215526db5"
+      }
+    },
+    {
+      "_id": "fld_6568b04c09fa4ec19581452f05600589",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Health",
+      "environment": {},
+      "metaSortKey": 1
+    },
+    {
+      "_id": "req_7ec37c2baed7466f98280fbbb150b8ff",
+      "_type": "request",
+      "parentId": "fld_6568b04c09fa4ec19581452f05600589",
+      "name": "GET Check service health",
+      "method": "GET",
+      "url": "{{ _.base_url }}/health",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 3
+    },
+    {
+      "_id": "req_d90830d005c24ccd814cb3321027a8ff",
+      "_type": "request",
+      "parentId": "fld_6568b04c09fa4ec19581452f05600589",
+      "name": "GET Read API capabilities",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/meta",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 4
+    },
+    {
+      "_id": "fld_a9e8c1917b2041ec99cbd4744c468bcd",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Credentials",
+      "environment": {},
+      "metaSortKey": 2
+    },
+    {
+      "_id": "req_96d9e21e47354ee3a997ab148aa167f1",
+      "_type": "request",
+      "parentId": "fld_a9e8c1917b2041ec99cbd4744c468bcd",
+      "name": "POST Encrypt and store a temporary credential",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/credentials",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"provider\": \"custom\",\n  \"model\": \"example-model\",\n  \"api_key\": \"REPLACE_ME\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 6
+    },
+    {
+      "_id": "req_bc23fd97fe4e42d1a0619771a58a8efc",
+      "_type": "request",
+      "parentId": "fld_a9e8c1917b2041ec99cbd4744c468bcd",
+      "name": "GET Read credential metadata",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/credentials/{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 7
+    },
+    {
+      "_id": "req_fc361238f15c4c76a9f0b96af01c23ef",
+      "_type": "request",
+      "parentId": "fld_cleanup",
+      "name": "DELETE Revoke a credential immediately",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/v1/credentials/{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 8
+    },
+    {
+      "_id": "fld_82e43a138b5b494a99ea332ef4390393",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Projects and versions",
+      "environment": {},
+      "metaSortKey": 3
+    },
+    {
+      "_id": "req_25f6798f82ab40f09a007e31a4149106",
+      "_type": "request",
+      "parentId": "fld_82e43a138b5b494a99ea332ef4390393",
+      "name": "POST Create a project",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/projects",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Acme Support API test\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 10
+    },
+    {
+      "_id": "req_fc54e5505b714f38a6edf674c3f693cb",
+      "_type": "request",
+      "parentId": "fld_82e43a138b5b494a99ea332ef4390393",
+      "name": "GET List projects",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/projects",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 11
+    },
+    {
+      "_id": "req_ed61dba4db704040b84f686ed23647d6",
+      "_type": "request",
+      "parentId": "fld_82e43a138b5b494a99ea332ef4390393",
+      "name": "GET Read a project",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 12
+    },
+    {
+      "_id": "req_eb7bac415ce14fe3973405d9d09c0af1",
+      "_type": "request",
+      "parentId": "fld_82e43a138b5b494a99ea332ef4390393",
+      "name": "PATCH Rename a project",
+      "method": "PATCH",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Acme Support API test\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 13
+    },
+    {
+      "_id": "req_88f988f523644e45b7f6da091d9379ff",
+      "_type": "request",
+      "parentId": "fld_cleanup",
+      "name": "DELETE Delete a project and dependent records",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 14
+    },
+    {
+      "_id": "req_d1758e3703404fc8a958da07756d0ef9",
+      "_type": "request",
+      "parentId": "fld_82e43a138b5b494a99ea332ef4390393",
+      "name": "POST Create the initial immutable version",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/versions",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"config\": {\n    \"system_prompt\": \"Preserve the original instructions.\"\n  }\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 15
+    },
+    {
+      "_id": "req_422897f06f7a4de2a5c7ab7d7f8d15d0",
+      "_type": "request",
+      "parentId": "fld_82e43a138b5b494a99ea332ef4390393",
+      "name": "GET List versions",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/versions",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 16
+    },
+    {
+      "_id": "req_634025559f0c4e74b26c6bc0d61097cf",
+      "_type": "request",
+      "parentId": "fld_82e43a138b5b494a99ea332ef4390393",
+      "name": "GET Read an immutable version",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/versions/{% response 'body', 'req_d1758e3703404fc8a958da07756d0ef9', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 17
+    },
+    {
+      "_id": "req_ad62fdcaf0024ea08dc1b186a8e35e25",
+      "_type": "request",
+      "parentId": "fld_82e43a138b5b494a99ea332ef4390393",
+      "name": "GET Read version ancestors",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/versions/{% response 'body', 'req_d1758e3703404fc8a958da07756d0ef9', 'b64::JC5pZA==::46b', 'never', 60 %}/lineage",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 18
+    },
+    {
+      "_id": "req_eff92776263f4908a3e80575f5557e63",
+      "_type": "request",
+      "parentId": "fld_82e43a138b5b494a99ea332ef4390393",
+      "name": "GET Compare two version configurations",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/versions/{% response 'body', 'req_d1758e3703404fc8a958da07756d0ef9', 'b64::JC5pZA==::46b', 'never', 60 %}/diff/{% response 'body', 'req_d1758e3703404fc8a958da07756d0ef9', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 19
+    },
+    {
+      "_id": "req_9b3d01e62ed34896b2ae4d6fd63235a9",
+      "_type": "request",
+      "parentId": "fld_82e43a138b5b494a99ea332ef4390393",
+      "name": "POST Check an external model connection",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/agent/test-connection",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"credential_id\": \"{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}\",\n  \"agent\": {\n    \"type\": \"openai_compatible\"\n  }\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 20
+    },
+    {
+      "_id": "fld_da5da436a3184175ba2aa6d6581e6543",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Traces",
+      "environment": {},
+      "metaSortKey": 4
+    },
+    {
+      "_id": "req_29de1405dae1444691e2c534a952d802",
+      "_type": "request",
+      "parentId": "fld_da5da436a3184175ba2aa6d6581e6543",
+      "name": "POST Idempotently ingest a trace and span tree",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/traces",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"id\": \"{{ _.trace_id }}\",\n  \"app_version_id\": \"{% response 'body', 'req_d1758e3703404fc8a958da07756d0ef9', 'b64::JC5pZA==::46b', 'never', 60 %}\",\n  \"input\": \"Captured question\",\n  \"output\": \"Captured answer\",\n  \"spans\": [\n    {\n      \"sdk_span_id\": \"llm-1\",\n      \"type\": \"llm\",\n      \"payload\": {\n        \"capture_method\": \"manual\"\n      }\n    }\n  ]\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 22
+    },
+    {
+      "_id": "req_2c9996ec4e3e4a39beec37f9b1e41299",
+      "_type": "request",
+      "parentId": "fld_da5da436a3184175ba2aa6d6581e6543",
+      "name": "GET List traces by version and status",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/traces",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 23
+    },
+    {
+      "_id": "req_c8778214dbf8431eb9994850cfdf310c",
+      "_type": "request",
+      "parentId": "fld_da5da436a3184175ba2aa6d6581e6543",
+      "name": "GET Read trace, span tree and retrieved chunks",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/traces/{% response 'body', 'req_29de1405dae1444691e2c534a952d802', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 24
+    },
+    {
+      "_id": "req_459fd96d634c4f7aa4778eca7bdb16d0",
+      "_type": "request",
+      "parentId": "fld_da5da436a3184175ba2aa6d6581e6543",
+      "name": "GET Read trace spans and chunks",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/traces/{% response 'body', 'req_29de1405dae1444691e2c534a952d802', 'b64::JC5pZA==::46b', 'never', 60 %}/spans",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 25
+    },
+    {
+      "_id": "req_c2006bc5e38e46448b503baeb597a2d1",
+      "_type": "request",
+      "parentId": "fld_da5da436a3184175ba2aa6d6581e6543",
+      "name": "GET Read a flat ordered trace timeline with latency",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/traces/{% response 'body', 'req_29de1405dae1444691e2c534a952d802', 'b64::JC5pZA==::46b', 'never', 60 %}/timeline",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 26
+    },
+    {
+      "_id": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Tests and assertions",
+      "environment": {},
+      "metaSortKey": 5
+    },
+    {
+      "_id": "req_2550eb6fccb042a4a95891defaba7b10",
+      "_type": "request",
+      "parentId": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "name": "POST Create a test case",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/test-cases",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"input\": \"Original query\",\n  \"expected\": {\n    \"reference\": \"Expected answer\"\n  }\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 28
+    },
+    {
+      "_id": "req_73b4ad85f288458dab735f9c48d679b0",
+      "_type": "request",
+      "parentId": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "name": "GET List project test cases",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/test-cases",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 29
+    },
+    {
+      "_id": "req_d68a48c065bb4cc6a6d96bffbca8b1d7",
+      "_type": "request",
+      "parentId": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "name": "GET Read a test case",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/test-cases/{% response 'body', 'req_2550eb6fccb042a4a95891defaba7b10', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 30
+    },
+    {
+      "_id": "req_1cf13a20d62c41569813967fb325d91b",
+      "_type": "request",
+      "parentId": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "name": "PATCH Update a test case",
+      "method": "PATCH",
+      "url": "{{ _.base_url }}/v1/test-cases/{% response 'body', 'req_2550eb6fccb042a4a95891defaba7b10', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"input\": \"Original query\",\n  \"expected\": {\n    \"reference\": \"Expected answer\"\n  }\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 31
+    },
+    {
+      "_id": "req_a70ab9301ae14e079f380066af9c0f01",
+      "_type": "request",
+      "parentId": "fld_cleanup",
+      "name": "DELETE Delete a test case and its assertion results",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/v1/test-cases/{% response 'body', 'req_2550eb6fccb042a4a95891defaba7b10', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 32
+    },
+    {
+      "_id": "req_6e3d01fe433c403184ed661bfc9e1e38",
+      "_type": "request",
+      "parentId": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "name": "POST Create a regression test from the original trace input",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/test-cases/from-trace/{% response 'body', 'req_29de1405dae1444691e2c534a952d802', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 33
+    },
+    {
+      "_id": "req_1adef94dd92f43e1bdbc91aebed98b58",
+      "_type": "request",
+      "parentId": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "name": "POST Generate seed tests using the judge",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/test-cases/seed",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"version_id\": \"{% response 'body', 'req_d1758e3703404fc8a958da07756d0ef9', 'b64::JC5pZA==::46b', 'never', 60 %}\",\n  \"credential_id\": \"{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}\",\n  \"count\": 3\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 34
+    },
+    {
+      "_id": "req_307d0cf2eacd42cdaef5d7139a0ceeec",
+      "_type": "request",
+      "parentId": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "name": "POST Assign stable dev and holdout splits by test ID",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/test-cases/split",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 35
+    },
+    {
+      "_id": "req_f2efba1363084abbb83fa03e28c467da",
+      "_type": "request",
+      "parentId": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "name": "POST Add a deterministic or judge assertion",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/test-cases/{% response 'body', 'req_2550eb6fccb042a4a95891defaba7b10', 'b64::JC5pZA==::46b', 'never', 60 %}/assertions",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"kind\": \"deterministic\",\n  \"spec\": {\n    \"type\": \"contains\",\n    \"value\": \"Expected answer\"\n  },\n  \"position\": 0\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 36
+    },
+    {
+      "_id": "req_8416b633541745c3829fcd80d2f62975",
+      "_type": "request",
+      "parentId": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "name": "GET List assertions for a test case",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/test-cases/{% response 'body', 'req_2550eb6fccb042a4a95891defaba7b10', 'b64::JC5pZA==::46b', 'never', 60 %}/assertions",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 37
+    },
+    {
+      "_id": "req_df0e99799bdd4900be94a3e3e179efc2",
+      "_type": "request",
+      "parentId": "fld_183f02d9f9234f389cdc5586f5161d13",
+      "name": "PATCH Update an assertion",
+      "method": "PATCH",
+      "url": "{{ _.base_url }}/v1/assertions/{% response 'body', 'req_f2efba1363084abbb83fa03e28c467da', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"kind\": \"deterministic\",\n  \"spec\": {\n    \"type\": \"contains\",\n    \"value\": \"Expected answer\"\n  },\n  \"position\": 0\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 38
+    },
+    {
+      "_id": "req_969f05d6c7444f98a595d121e06e8ffa",
+      "_type": "request",
+      "parentId": "fld_cleanup",
+      "name": "DELETE Delete an assertion and its saved evidence",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/v1/assertions/{% response 'body', 'req_f2efba1363084abbb83fa03e28c467da', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 39
+    },
+    {
+      "_id": "fld_5a86ece0cb3d4f62aee256add3104e41",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Runs",
+      "environment": {},
+      "metaSortKey": 6
+    },
+    {
+      "_id": "req_2e32f7838d9948dda6e6585903576c7d",
+      "_type": "request",
+      "parentId": "fld_5a86ece0cb3d4f62aee256add3104e41",
+      "name": "POST Evaluate an agent version in a background job",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/runs",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"version_id\": \"{% response 'body', 'req_d1758e3703404fc8a958da07756d0ef9', 'b64::JC5pZA==::46b', 'never', 60 %}\",\n  \"credential_id\": \"{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 41
+    },
+    {
+      "_id": "req_861022161eca4589a3fd0a2b7e3e3125",
+      "_type": "request",
+      "parentId": "fld_5a86ece0cb3d4f62aee256add3104e41",
+      "name": "GET List evaluation runs",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/runs",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 42
+    },
+    {
+      "_id": "req_ac49f9b928154889a1890b4fea383a77",
+      "_type": "request",
+      "parentId": "fld_5a86ece0cb3d4f62aee256add3104e41",
+      "name": "GET Read a run",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/runs/{% response 'body', 'req_f9f9865cb16e4cacb209f6315fbd6825', 'b64::JC5yZXN1bHQucnVuX2lk::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 43
+    },
+    {
+      "_id": "req_6bf4f554f28849a49311330f104e47f4",
+      "_type": "request",
+      "parentId": "fld_5a86ece0cb3d4f62aee256add3104e41",
+      "name": "GET List per-test results",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/runs/{% response 'body', 'req_f9f9865cb16e4cacb209f6315fbd6825', 'b64::JC5yZXN1bHQucnVuX2lk::46b', 'never', 60 %}/results",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 44
+    },
+    {
+      "_id": "req_410a9ec34b784104b6ebbf181a187511",
+      "_type": "request",
+      "parentId": "fld_5a86ece0cb3d4f62aee256add3104e41",
+      "name": "GET Read a result and assertion evidence",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/run-results/{% response 'body', 'req_6bf4f554f28849a49311330f104e47f4', 'b64::JC5pdGVtc1swXS5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 45
+    },
+    {
+      "_id": "req_be738f05e3e842e3878c406a9eff5db2",
+      "_type": "request",
+      "parentId": "fld_5a86ece0cb3d4f62aee256add3104e41",
+      "name": "GET Summarize overall dev and holdout scores",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/runs/{% response 'body', 'req_f9f9865cb16e4cacb209f6315fbd6825', 'b64::JC5yZXN1bHQucnVuX2lk::46b', 'never', 60 %}/summary",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 46
+    },
+    {
+      "_id": "req_c5bd55486d174a06b53c7e680957257d",
+      "_type": "request",
+      "parentId": "fld_5a86ece0cb3d4f62aee256add3104e41",
+      "name": "GET Compare two runs from one project",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/runs/{% response 'body', 'req_f9f9865cb16e4cacb209f6315fbd6825', 'b64::JC5yZXN1bHQucnVuX2lk::46b', 'never', 60 %}/compare/{% response 'body', 'req_f9f9865cb16e4cacb209f6315fbd6825', 'b64::JC5yZXN1bHQucnVuX2lk::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 47
+    },
+    {
+      "_id": "fld_391e3681e87d48d1a0a28af8f151d616",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Jobs",
+      "environment": {},
+      "metaSortKey": 7
+    },
+    {
+      "_id": "req_f9f9865cb16e4cacb209f6315fbd6825",
+      "_type": "request",
+      "parentId": "fld_391e3681e87d48d1a0a28af8f151d616",
+      "name": "GET Read job progress and result",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/jobs/{% response 'body', 'req_2e32f7838d9948dda6e6585903576c7d', 'b64::JC5qb2JfaWQ=::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 49
+    },
+    {
+      "_id": "req_e252a733ac9f469a9b131ec833fb57ef",
+      "_type": "request",
+      "parentId": "fld_391e3681e87d48d1a0a28af8f151d616",
+      "name": "GET Stream job progress",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/jobs/{% response 'body', 'req_2e32f7838d9948dda6e6585903576c7d', 'b64::JC5qb2JfaWQ=::46b', 'never', 60 %}/events",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 50
+    },
+    {
+      "_id": "fld_fed648d82e664550af08f9745332f82a",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Fix loop",
+      "environment": {},
+      "metaSortKey": 8
+    },
+    {
+      "_id": "req_28a32553e0224398be23de358c845978",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "POST Diagnose a failed evaluation result",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/run-results/{% response 'body', 'req_6bf4f554f28849a49311330f104e47f4', 'b64::JC5pdGVtc1swXS5pZA==::46b', 'never', 60 %}/diagnose",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"credential_id\": \"{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 52
+    },
+    {
+      "_id": "req_c7b66813b10644ee97287f6b5abdc6f2",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "POST Diagnose a captured trace",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/traces/{% response 'body', 'req_29de1405dae1444691e2c534a952d802', 'b64::JC5pZA==::46b', 'never', 60 %}/diagnose",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"credential_id\": \"{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 53
+    },
+    {
+      "_id": "req_ea2aaf42a4764143bc8b4941b6d50e90",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "GET List diagnoses",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/diagnoses",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 54
+    },
+    {
+      "_id": "req_fccc62c5fd1949279d96f51a7933f5f7",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "GET Read diagnosis evidence",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/diagnoses/{% response 'body', 'req_28a32553e0224398be23de358c845978', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 55
+    },
+    {
+      "_id": "req_900baf21b3134e9fbee955aec516326a",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "POST Confirm a diagnosis by changing one variable",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/diagnoses/{% response 'body', 'req_28a32553e0224398be23de358c845978', 'b64::JC5pZA==::46b', 'never', 60 %}/replay",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"credential_id\": \"{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}\",\n  \"changed_variable\": \"system_prompt\",\n  \"new_value\": \"Candidate instructions owned by the evaluator\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 56
+    },
+    {
+      "_id": "req_26eb93f0af374dfd808c5ff633bae94e",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "GET Read replay outcome",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/replays/{% response 'body', 'req_900baf21b3134e9fbee955aec516326a', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 57
+    },
+    {
+      "_id": "req_b42118cacb264a1bb7f9cf88ce446991",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "POST Create a candidate version from a confirmed diagnosis",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/diagnoses/{% response 'body', 'req_28a32553e0224398be23de358c845978', 'b64::JC5pZA==::46b', 'never', 60 %}/repairs",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"credential_id\": \"{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 58
+    },
+    {
+      "_id": "req_1d5d92ca77d54caebdd89c318c97bfe6",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "GET Read a repair and candidate version reference",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/repairs/{% response 'body', 'req_b42118cacb264a1bb7f9cf88ce446991', 'b64::JC5pZA==::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 59
+    },
+    {
+      "_id": "req_0de96f7c14ba43c78d8ff8a77ac33814",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "POST Verify baseline and candidate without regressions",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/repairs/{% response 'body', 'req_b42118cacb264a1bb7f9cf88ce446991', 'b64::JC5pZA==::46b', 'never', 60 %}/verify",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"credential_id\": \"{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 60
+    },
+    {
+      "_id": "req_a11512a56fce4cc68a6faf42bcd0cc7e",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "GET Read the verification scorecard",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/verifications/{% response 'body', 'req_f9f9865cb16e4cacb209f6315fbd6825', 'b64::JC5yZXN1bHQudmVyaWZpY2F0aW9uX2lk::46b', 'never', 60 %}",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 61
+    },
+    {
+      "_id": "req_de62a178adc54f5ab682a83a9a56e727",
+      "_type": "request",
+      "parentId": "fld_fed648d82e664550af08f9745332f82a",
+      "name": "POST Run one diagnose replay repair verify cycle",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/improve",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"version_id\": \"{% response 'body', 'req_d1758e3703404fc8a958da07756d0ef9', 'b64::JC5pZA==::46b', 'never', 60 %}\",\n  \"credential_id\": \"{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}\"\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 62
+    },
+    {
+      "_id": "fld_19c78752aa0647528b944c15a80e160a",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Dashboard",
+      "environment": {},
+      "metaSortKey": 9
+    },
+    {
+      "_id": "req_639fa5df0d7641c2b370937244a5c5ff",
+      "_type": "request",
+      "parentId": "fld_19c78752aa0647528b944c15a80e160a",
+      "name": "GET Format stored version scores and repair verdicts",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/dashboard",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 64
+    },
+    {
+      "_id": "req_f6e4503da4204cd0970f633865ba68fe",
+      "_type": "request",
+      "parentId": "fld_19c78752aa0647528b944c15a80e160a",
+      "name": "GET Read a stored metric over versions",
+      "method": "GET",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/dashboard/series",
+      "body": {},
+      "headers": [],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 65
+    },
+    {
+      "_id": "fld_d7c20b547c3040a9bf4010b0a7bb2894",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "Chat",
+      "environment": {},
+      "metaSortKey": 10
+    },
+    {
+      "_id": "req_163ee96f657e4389889e6c88b7e4cc3c",
+      "_type": "request",
+      "parentId": "fld_d7c20b547c3040a9bf4010b0a7bb2894",
+      "name": "POST Stream evaluator chat events and result cards",
+      "method": "POST",
+      "url": "{{ _.base_url }}/v1/projects/{% response 'body', 'req_25f6798f82ab40f09a007e31a4149106', 'b64::JC5pZA==::46b', 'never', 60 %}/chat",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"credential_id\": \"{% response 'body', 'req_96d9e21e47354ee3a997ab148aa167f1', 'b64::JC5jcmVkZW50aWFsX2lk::46b', 'never', 60 %}\",\n  \"message\": \"Explain the selected result\",\n  \"history\": []\n}"
+      },
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "parameters": [],
+      "authentication": {},
+      "description": "IDs use native response history. Send create requests first. AI operations503until evaluator connected. DELETE removes real records: run cleanup last. Job polling defaults to run job; select verify job response to poll verification.",
+      "metaSortKey": 67
+    },
+    {
+      "_id": "fld_cleanup",
+      "_type": "request_group",
+      "parentId": "wrk_06f34297edfc44d6a39c24438da86dd6",
+      "name": "99 Cleanup - LAST",
+      "environment": {},
+      "metaSortKey": 99
+    }
+  ]
+}
