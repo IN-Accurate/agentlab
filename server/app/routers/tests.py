@@ -1,9 +1,7 @@
 import hashlib
-import json
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from pydantic import ValidationError
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +26,7 @@ from app.schemas import (
     TestUpdate,
     entity,
 )
-from app.services import llm
+from app.services.evaluator import prepare, execute
 
 router = APIRouter(prefix="/v1", tags=["Tests and assertions"])
 
@@ -149,55 +147,18 @@ async def from_trace(
     "/projects/{id}/test-cases/seed",
     response_model=Page,
     status_code=201,
-    summary="Generate seed tests using the judge",
+    summary="Forward seed generation to the evaluator",
 )
 async def seed(
     id: UUID, data: SeedCreate, request: Request, db: AsyncSession = Depends(session)
 ):
     await require(db, Project, id)
-    version = await require(db, AppVersion, data.version_id)
-    if version.project_id != id:
-        raise AppError("project_mismatch", "Version belongs to another project", 422)
-    payload = {
-        "knowledge_base": version.config.get("knowledge_base", []),
-        "system_prompt": version.config.get("system_prompt", ""),
-        "sample_inputs": data.sample_inputs,
-        "count": data.count,
-    }
-    answer = await llm.complete(
+    result = await execute(
+        db,
         request.app.state,
-        data.judge_credential_id or data.credential_id,
-        [
-            {
-                "role": "system",
-                "content": "TASK:seed Generate test inputs and expected facts from the supplied context. Return JSON {items: [{input: string, expected: object}]}. Do not include credentials or unsupported facts.",
-            },
-            {"role": "user", "content": json.dumps(payload)},
-        ],
-        judge=True,
+        await prepare(db, request.app.state, "seed", data, project_id=id),
     )
-    try:
-        generated = json.loads(answer["content"])["items"]
-        if not isinstance(generated, list) or not 1 <= len(generated) <= data.count:
-            raise ValueError("Invalid number of generated tests")
-        tests = [TestCreate.model_validate(item) for item in generated]
-    except (ValueError, KeyError, TypeError, ValidationError) as exc:
-        raise AppError(
-            "invalid_seed_response", "Judge returned invalid seed tests", 502
-        ) from exc
-    rows = []
-    for test in tests:
-        row = TestCase(
-            project_id=id,
-            input=test.input,
-            expected=test.expected,
-            origin="seed",
-            split="dev",
-        )
-        db.add(row)
-        rows.append(row)
-    await db.flush()
-    return {"items": [record(row) for row in rows], "next_cursor": None}
+    return {"items": result["items"], "next_cursor": None}
 
 
 @router.post(

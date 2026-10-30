@@ -28,7 +28,7 @@ async def api():
     await connection.execute(
         (Path(__file__).parents[2] / "db/testlab_schema.sql").read_text()
     )
-    app = create_app(Settings(_env_file=None, database_url=url, testlab_fake_llm=True))
+    app = create_app(Settings(_env_file=None, database_url=url))
     await app.state.engine.dispose()
     engine = create_async_engine(
         url.replace("postgresql://", "postgresql+asyncpg://"),

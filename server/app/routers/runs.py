@@ -8,9 +8,9 @@ from app.db import session, require, record, page
 from app.errors import AppError
 from app.models import Project, AppVersion, TestCase, Run, RunResult, AssertionResult
 from app.schemas import RunCreate, Page, JobResponse, entity
-from app.security import credential_record
 from app.routers.jobs import submit
-from app.services.assertions import run_evaluation, summarize
+from app.services.results import summarize
+from app.services.evaluator import prepare, execute
 
 router = APIRouter(prefix="/v1", tags=["Runs"])
 
@@ -52,26 +52,10 @@ async def run(
     background: BackgroundTasks,
     db: AsyncSession = Depends(session),
 ):
-    await selected(db, id, data)
-    credential_record(str(data.credential_id), request.app.state.credential_store)
-    if data.judge_credential_id:
-        credential_record(
-            str(data.judge_credential_id), request.app.state.credential_store
-        )
+    prepared = await prepare(db, request.app.state, "run", data, project_id=id)
 
     async def operation(job_db, progress):
-        version, tests = await selected(job_db, id, data)
-        result = await run_evaluation(
-            job_db,
-            request.app.state,
-            version,
-            tests,
-            str(data.credential_id),
-            data.params.model_dump(exclude_none=True),
-            str(data.judge_credential_id) if data.judge_credential_id else None,
-            progress,
-        )
-        return {"run_id": str(result.id), "summary": await summarize(job_db, result.id)}
+        return await execute(job_db, request.app.state, prepared, progress)
 
     return await submit(request.app.state, background, operation)
 

@@ -83,11 +83,13 @@ async def remove(id: UUID, db: AsyncSession = Depends(session)):
     await db.execute(delete(Run).where(Run.app_version_id.in_(versions)))
     await db.execute(delete(TestCase).where(TestCase.project_id == id))
     await db.execute(delete(Trace).where(Trace.app_version_id.in_(versions)))
-    # Parent references require children to be removed before their ancestors.
+    # Timestamps can tie when several versions are created in one transaction.
+    child_parents = select(AppVersion.parent_version_id).where(
+        AppVersion.parent_version_id.is_not(None)
+    )
     while row := await db.scalar(
         select(AppVersion)
-        .where(AppVersion.project_id == id)
-        .order_by(AppVersion.created_at.desc())
+        .where(AppVersion.project_id == id, AppVersion.id.not_in(child_parents))
         .limit(1)
     ):
         await db.execute(delete(AppVersion).where(AppVersion.id == row.id))
@@ -190,22 +192,19 @@ async def test_connection(
     request: Request,
     db: AsyncSession = Depends(session),
 ):
-    from app.services.llm import complete
+    from app.services.evaluator import prepare, execute
 
     await require(db, Project, id)
     if data.agent.type != "openai_compatible":
         raise AppError(
             "invalid_agent_type", "Connection checks need an external agent", 422
         )
-    result = await complete(
+    if data.agent.base_url:
+        await validate_url(
+            data.agent.base_url, request.app.state.settings.testlab_allow_insecure_local
+        )
+    return await execute(
+        db,
         request.app.state,
-        str(data.credential_id),
-        [{"role": "user", "content": "Reply OK"}],
-        params={"max_tokens": 32},
-        agent=data.agent.model_dump(exclude_none=True),
+        await prepare(db, request.app.state, "test_connection", data, project_id=id),
     )
-    return {
-        "ok": True,
-        "latency_ms": result["latency_ms"],
-        "model": data.agent.model or "credential default",
-    }

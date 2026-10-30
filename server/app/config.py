@@ -9,10 +9,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_encryption_key: str | None = None
     cors_origins: str = "http://localhost:3000"
-    testlab_fake_llm: bool = False
     testlab_allow_insecure_local: bool = False
-    openrouter_referer: str | None = None
-    openrouter_title: str | None = None
     credential_rate_limit: int = Field(20, ge=1)
     chat_rate_limit: int = Field(30, ge=1)
 

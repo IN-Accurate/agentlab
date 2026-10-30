@@ -242,6 +242,7 @@ class HealthResponse(BaseModel):
 
 
 class MetaResponse(BaseModel):
+    evaluator_configured: bool = False
     version: str
     providers: list[str]
     agent_types: list[str]

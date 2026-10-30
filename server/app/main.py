@@ -15,9 +15,10 @@ from app.db import connect
 from app.errors import AppError, error_body
 from app.security import Redactor, RedactionFilter, rate_limit
 from app.store import CredentialStore, JobStore
+from app.schemas import HealthResponse, MetaResponse
 
 
-def create_app(settings=None):
+def create_app(settings=None, evaluator=None):
     settings = settings or Settings()
     if not settings.app_encryption_key:
         settings.app_encryption_key = Fernet.generate_key().decode()
@@ -51,6 +52,7 @@ def create_app(settings=None):
     app = FastAPI(title="TestLab API", version="0.1.0", lifespan=lifespan)
     app.state.settings, app.state.sessions = settings, sessions
     app.state.engine = engine
+    app.state.evaluator = evaluator
     app.state.redactor = Redactor()
     app.state.credential_store = CredentialStore()
     app.state.job_store = JobStore()
@@ -117,7 +119,10 @@ def create_app(settings=None):
         )
 
     @app.get(
-        "/health", tags=["Health"], summary="Check service health", response_model=dict
+        "/health",
+        tags=["Health"],
+        summary="Check service health",
+        response_model=HealthResponse,
     )
     async def health():
         return {"status": "ok"}
@@ -126,12 +131,13 @@ def create_app(settings=None):
         "/v1/meta",
         tags=["Health"],
         summary="Read API capabilities",
-        response_model=dict,
+        response_model=MetaResponse,
     )
     async def meta():
         return {
             "version": "0.1.0",
             "providers": ["openrouter", "meta", "custom"],
+            "evaluator_configured": app.state.evaluator is not None,
             "agent_types": ["hosted", "openai_compatible"],
             "sse_events": [
                 "message.delta",
@@ -143,7 +149,7 @@ def create_app(settings=None):
             ],
         }
 
-    from app.routers import credentials, projects, traces, tests, runs, jobs
+    from app.routers import credentials, projects, traces, tests, runs, jobs, fixloop
 
     app.include_router(credentials.router)
     app.include_router(projects.router)
@@ -151,6 +157,11 @@ def create_app(settings=None):
     app.include_router(tests.router)
     app.include_router(runs.router)
     app.include_router(jobs.router)
+    app.include_router(fixloop.router)
+    from app.routers import dashboard, chat
+
+    app.include_router(dashboard.router)
+    app.include_router(chat.router)
     return app
 
 

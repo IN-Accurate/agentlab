@@ -2,7 +2,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
 
-from app.models import AssertionResult, Run, RunResult, TestCase
+from app.models import AssertionResult, Run, RunResult
 
 
 async def project_version(client):
@@ -116,63 +116,19 @@ async def test_from_trace_preserves_input_and_rejects_cross_project_source(api):
     ).status_code == 422
 
 
-async def test_seed_and_stable_split(api):
+async def test_stable_split(api):
     client, _ = api
-    project, version = await project_version(client)
-    credential = await client.post(
-        "/v1/credentials",
-        json={"provider": "custom", "model": "example-model", "api_key": "REPLACE_ME"},
-    )
-    assert credential.status_code == 201, credential.text
-    result = await client.post(
-        f"/v1/projects/{project}/test-cases/seed",
-        json={
-            "version_id": version,
-            "credential_id": credential.json()["credential_id"],
-            "count": 3,
-            "sample_inputs": ["What is the refund policy?"],
-        },
-    )
-    assert result.status_code == 201, result.text
-    assert len(result.json()["items"]) == 3
-    assert all(row["origin"] == "seed" for row in result.json()["items"])
-    first = await client.post(f"/v1/projects/{project}/test-cases/split", json={})
-    assert first.status_code == 200, first.text
-    first_splits = {row["id"]: row["split"] for row in first.json()["items"]}
-    second = await client.post(f"/v1/projects/{project}/test-cases/split", json={})
-    assert first_splits == {row["id"]: row["split"] for row in second.json()["items"]}
-    listing = await client.get(f"/v1/projects/{project}/test-cases?limit=2")
-    assert len(listing.json()["items"]) == 2
-    cursor = listing.json()["next_cursor"]
-    assert cursor
-    last = await client.get(
-        f"/v1/projects/{project}/test-cases?limit=2&cursor={cursor}"
-    )
-    assert len(last.json()["items"]) == 1
-
-
-async def test_invalid_judge_seed_response_is_not_persisted(api, monkeypatch):
-    from app.services import llm
-
-    client, app = api
-    project, version = await project_version(client)
-    credential = await client.post(
-        "/v1/credentials",
-        json={"provider": "custom", "model": "example-model", "api_key": "REPLACE_ME"},
-    )
-
-    async def malformed(*args, **kwargs):
-        return {"content": '{"items":[{"input":""}]}'}
-
-    monkeypatch.setattr(llm, "complete", malformed)
-    response = await client.post(
-        f"/v1/projects/{project}/test-cases/seed",
-        json={
-            "version_id": version,
-            "credential_id": credential.json()["credential_id"],
-        },
-    )
-    assert response.status_code == 502, response.text
-    assert response.json()["error"]["code"] == "invalid_seed_response"
-    async with app.state.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(TestCase)) == 0
+    project, _ = await project_version(client)
+    for i in range(8):
+        assert (
+            await client.post(
+                f"/v1/projects/{project}/test-cases", json={"input": f"Question {i}"}
+            )
+        ).status_code == 201
+    first = (
+        await client.post(f"/v1/projects/{project}/test-cases/split", json={})
+    ).json()
+    second = (
+        await client.post(f"/v1/projects/{project}/test-cases/split", json={})
+    ).json()
+    assert first == second
