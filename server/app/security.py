@@ -6,7 +6,7 @@ import re
 import socket
 from datetime import UTC, datetime, timedelta
 from time import monotonic
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 from cryptography.fernet import Fernet
@@ -25,6 +25,15 @@ class Redactor:
 
     def text(self, value):
         value = str(value)
+
+        # Rejected URL credentials still appear in access logs before registration.
+        def redact_query(match):
+            name = unquote(match[2]).lower().replace("-", "_")
+            if name in {"api_key", "apikey", "authorization", "access_token", "token"}:
+                return match[1] + match[2] + "=[REDACTED]"
+            return match[0]
+
+        value = re.sub(r"([?&])([^=&\s\"'<>]+)=([^&#\s\"'<>]*)", redact_query, value)
         for length, fingerprints in self._fingerprints.items():
             matches = []
             for start in range(max(0, len(value) - length + 1)):

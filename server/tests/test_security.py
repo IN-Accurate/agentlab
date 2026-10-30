@@ -7,6 +7,7 @@ from cryptography.fernet import Fernet
 from uvicorn.logging import AccessFormatter, DefaultFormatter
 
 from app.errors import AppError
+from app.config import Settings
 from app.security import (
     RedactionFilter,
     Redactor,
@@ -135,3 +136,48 @@ async def test_url_public_and_local_opt_in(monkeypatch):
     assert await validate_url("http://localhost/v1", allow_local=True) == ["127.0.0.1"]
     with pytest.raises(AppError):
         await validate_url("https://example.com/v1?api_key=REPLACE_ME")
+
+
+@pytest.mark.parametrize("origins", ["*", " * ", "http://localhost:3000, * "])
+def test_cors_rejects_whitespace_wildcard(origins):
+    with pytest.raises(ValueError, match="explicit CORS"):
+        Settings(_env_file=None, cors_origins=origins)
+
+
+def test_production_rejects_insecure_local_exception():
+    with pytest.raises(ValueError, match="development-only"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            app_encryption_key=Fernet.generate_key().decode(),
+            testlab_allow_insecure_local=True,
+        )
+
+
+@pytest.mark.parametrize("field", ["api_key", "apikey", "authorization", "%61pi_key"])
+def test_access_log_scrubs_unregistered_query_credentials(field):
+    key = "REPLACE_ME_UNREGISTERED"
+    log_filter = RedactionFilter(Redactor())
+    record = logging.LogRecord(
+        "uvicorn.access",
+        20,
+        "",
+        0,
+        "%s - %s %s %s %s",
+        (
+            "127.0.0.1:8000",
+            "GET",
+            f"/v1/credentials?{field}={key}&limit=10",
+            "1.1",
+            400,
+        ),
+        None,
+    )
+    assert log_filter.filter(record)
+    text = AccessFormatter("%(message)s %(status_code)s", use_colors=False).format(
+        record
+    )
+    assert key not in text
+    assert "[REDACTED]" in text
+    assert "limit=10" in text
+    assert "400 Bad Request" in text

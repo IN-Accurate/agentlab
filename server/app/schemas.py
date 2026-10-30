@@ -148,7 +148,7 @@ class TraceCreate(RequestModel):
                 if current in seen:
                     raise ValueError("Span parents must not form a cycle")
                 if current not in parents:
-                    raise ValueError("Parent span must appear in the ingest request")
+                    break
                 seen.add(current)
                 current = parents[current]
         return self
@@ -262,3 +262,14 @@ def entity(model):
         __config__=ConfigDict(from_attributes=True),
         **fields,
     )
+
+
+class TraceDetail(BaseModel):
+    id: UUID
+    app_version_id: UUID
+    input: str | None
+    output: str | None
+    status: str
+    created_at: datetime
+    spans: list[dict[str, Any]]
+    span_tree: list[dict[str, Any]]

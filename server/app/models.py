@@ -13,11 +13,10 @@ from sqlalchemy import (
     UniqueConstraint,
     event,
     func,
-    select,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from app.errors import AppError
 
@@ -247,31 +246,15 @@ def immutable_version(mapper, connection, target):
     )
 
 
-def dump(row):
-    from fastapi.encoders import jsonable_encoder
-
-    return jsonable_encoder(
-        {column.name: getattr(row, column.name) for column in row.__table__.columns}
-    )
-
-
-async def require(session, model, identifier):
-    try:
-        identifier = UUID(str(identifier))
-    except ValueError as exc:
-        raise AppError("invalid_id", "Expected a UUID", 422) from exc
-    row = await session.get(model, identifier)
-    if row is None:
-        raise AppError("not_found", "Requested record does not exist", 404)
-    return row
-
-
-async def page(session, model, filters=(), limit=50, cursor=None):
-    query = select(model).where(*filters).order_by(model.id).limit(limit + 1)
-    if cursor:
-        query = query.where(model.id > UUID(str(cursor)))
-    rows = list(await session.scalars(query))
-    return {
-        "items": [dump(row) for row in rows[:limit]],
-        "next_cursor": str(rows[limit - 1].id) if len(rows) > limit else None,
-    }
+@event.listens_for(Session, "before_flush")
+def redact_persisted_values(session, flush_context, instances):
+    redactor = session.info.get("redactor")
+    if redactor is None:
+        return
+    for row in session.new | session.dirty:
+        if not isinstance(row, Base):
+            continue
+        for column in row.__table__.columns:
+            value = getattr(row, column.name)
+            if isinstance(value, (str, dict, list)):
+                setattr(row, column.name, redactor.scrub(value))

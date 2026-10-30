@@ -18,10 +18,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def check_settings(self):
-        if "*" in self.cors_origins.split(","):
+        if "*" in [origin.strip() for origin in self.cors_origins.split(",")]:
             raise ValueError("Use explicit CORS origins")
         if self.app_env == "production" and not self.app_encryption_key:
             raise ValueError("APP_ENCRYPTION_KEY is required in production")
+        if self.app_env == "production" and self.testlab_allow_insecure_local:
+            raise ValueError("Insecure localhost URLs are development-only")
         return self
 
     def connection(self):

@@ -12,6 +12,7 @@ def connect(settings):
 
 async def session(request: Request):
     async with request.app.state.sessions() as value, value.begin():
+        value.info["redactor"] = request.app.state.redactor
         yield value
 
 
