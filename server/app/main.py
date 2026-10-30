@@ -143,6 +143,10 @@ def create_app(settings=None):
             ],
         }
 
+    from app.routers import credentials, projects
+
+    app.include_router(credentials.router)
+    app.include_router(projects.router)
     return app
 
 
