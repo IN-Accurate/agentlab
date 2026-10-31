@@ -185,8 +185,10 @@ class SafeTransport(httpx.AsyncBaseTransport):
 
     Stored base URLs are validated at creation time, but DNS can change
     before the evaluator calls them. This transport closes that window by
-    validating the addresses DNS returns at call time. Redirect hops are
-    validated the same way because each hop passes through here.
+    validating the addresses DNS returns at call time and pinning the socket
+    to the validated address; the original hostname is preserved for the
+    Host header, SNI, and certificate verification. Redirect hops re-enter
+    this transport, so each hop is validated and pinned the same way.
     """
 
     def __init__(self, settings, inner=None):
@@ -205,13 +207,28 @@ class SafeTransport(httpx.AsyncBaseTransport):
             self._allow_local and local_name and url.scheme == "http"
         ):
             raise AppError("unsafe_url", "Outbound URLs require HTTPS", 422)
-        await _resolve_public(
+        resolved = await _resolve_public(
             host,
             url.port or (443 if url.scheme == "https" else 80),
             self._allow_local,
             local_name,
         )
-        return await self._inner.handle_async_request(request)
+        display = host if ":" not in host else f"[{host}]"
+        default_port = 443 if url.scheme == "https" else 80
+        if url.port and url.port != default_port:
+            display = f"{display}:{url.port}"
+        headers = httpx.Headers(request.headers)
+        headers["Host"] = display
+        extensions = dict(request.extensions)
+        extensions["sni_hostname"] = host
+        pinned = httpx.Request(
+            request.method,
+            request.url.copy_with(host=resolved[0]),
+            headers=headers,
+            stream=request.stream,
+            extensions=extensions,
+        )
+        return await self._inner.handle_async_request(pinned)
 
     async def aclose(self):
         await self._inner.aclose()

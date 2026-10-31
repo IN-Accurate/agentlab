@@ -5,6 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 import httpx
+from httpcore import ConnectError
+
+# Pinned to httpcore 1.x internals: guards the socket dial target.
+from httpcore._backends.auto import AutoBackend
 from cryptography.fernet import Fernet
 from uvicorn.logging import AccessFormatter, DefaultFormatter
 
@@ -325,6 +329,11 @@ async def test_safe_transport_validates_destination_at_call_time(monkeypatch):
     monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", public)
     assert (await client.get("https://example.com/v1?api-version=1")).status_code == 200
     assert len(inner.requests) == 1
+    pinned = inner.requests[0]
+    assert pinned.url.host == "8.8.8.8"
+    assert pinned.url.path == "/v1"
+    assert pinned.headers["host"] == "example.com"
+    assert pinned.extensions["sni_hostname"] == "example.com"
     with pytest.raises(AppError, match="HTTPS"):
         await client.get("http://example.com/v1")
     with pytest.raises(AppError, match="credentials"):
@@ -360,3 +369,57 @@ def test_production_requires_api_key():
         app_encryption_key=Fernet.generate_key().decode(),
         testlab_api_key="k",
     )
+
+
+@pytest.mark.asyncio
+async def test_safe_transport_pins_validated_address(monkeypatch):
+    dialed = []
+    resolved_hosts = []
+
+    async def resolve(host, *args, **kwargs):
+        resolved_hosts.append(host)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+    async def fake_connect_tcp(self, host, port, **kwargs):
+        dialed.append((host, port))
+        raise ConnectError()
+
+    monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
+    monkeypatch.setattr(AutoBackend, "connect_tcp", fake_connect_tcp)
+    settings = SimpleNamespace(testlab_allow_insecure_local=False)
+    async with httpx.AsyncClient(transport=SafeTransport(settings)) as client:
+        with pytest.raises(httpx.ConnectError):
+            await client.get("https://example.com/v1")
+    assert dialed == [("93.184.216.34", 443)]
+    assert resolved_hosts == ["example.com"]
+
+
+@pytest.mark.asyncio
+async def test_safe_transport_repins_each_redirect_hop(monkeypatch):
+    seen = []
+
+    class RedirectFixture(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            seen.append(request)
+            if request.url.path == "/start":
+                return httpx.Response(
+                    302, headers={"location": "/final"}, request=request
+                )
+            return httpx.Response(200, content=b"ok", request=request)
+
+    async def resolve(host, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+    monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
+    settings = SimpleNamespace(testlab_allow_insecure_local=False)
+    async with httpx.AsyncClient(
+        transport=SafeTransport(settings, inner=RedirectFixture())
+    ) as client:
+        response = await client.get("https://example.com/start", follow_redirects=True)
+        assert response.status_code == 200
+    assert [request.url.path for request in seen] == ["/start", "/final"]
+    assert [request.url.host for request in seen] == ["93.184.216.34"] * 2
+    assert [request.headers["host"] for request in seen] == ["example.com"] * 2
+    assert [request.extensions["sni_hostname"] for request in seen] == [
+        "example.com"
+    ] * 2
