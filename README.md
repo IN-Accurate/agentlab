@@ -48,6 +48,44 @@ Trace ➔ Test ➔ Diagnose ➔ Confirm ➔ Repair ➔ Verify
 
 ---
 
+## 💻 Run Locally
+
+### Prerequisites
+
+* Python 3.11+
+* Node 18+ (the `web/` app was built with Node 26 via `nvm`)
+* A Postgres database (Neon recommended). Use a **direct** connection string, not the pooler, for tests.
+
+### 1. Backend API
+
+```sh
+python3.11 -m venv .venv
+.venv/bin/pip install -r server/requirements.txt
+DATABASE_URL='<your-postgres-direct-URL>' .venv/bin/python -m uvicorn app.main:app --port 8000 --app-dir server
+```
+
+Verify: `curl localhost:8000/health` → `{"status":"ok"}`. Interactive docs at http://localhost:8000/docs (note: `/` itself is a 404 — the API lives under `/v1`).
+
+### 2. Frontend
+
+```sh
+cd web
+npm install
+npm run dev
+```
+
+Open http://localhost:5173. The dev server proxies API calls to the backend on `:8000`, so keep both running. See [web/README.md](web/frontend_README) for build config and details.
+
+### 3. Tests (backend)
+
+```sh
+TEST_DATABASE_URL='<your-test-db-URL (name must contain "test")>' .venv/bin/python -m pytest server/tests -q
+```
+
+Each test builds a fresh schema from `db/testlab_schema.sql` inside that database and drops it afterwards. Chat/test-run flows additionally require an evaluator configured on the backend; without one those endpoints return `503` with an explicit error code.
+
+---
+
 ## 🗄️ Database Schema Overview (14 Tables)
 
 | Domain | Tables |
