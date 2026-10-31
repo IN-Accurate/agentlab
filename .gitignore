@@ -5,3 +5,10 @@
 __pycache__/
 .pytest_cache/
 *.log
+
+# Claude tooling
+.claude/
+.claude.json
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json

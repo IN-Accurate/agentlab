@@ -1,0 +1,38 @@
+name: CD
+
+# Publishes the API image after CI passes on main. Set the DEPLOY_HOOK_URL
+# secret to a host's deploy webhook to also trigger a release.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        run: |
+          image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')/api"
+          docker build -t "$image:$SHA" -t "$image:latest" server
+          docker push --all-tags "$image"
+      - name: Trigger deploy
+        if: env.DEPLOY_HOOK_URL != ''
+        run: curl --fail --silent --show-error -X POST "$DEPLOY_HOOK_URL"
