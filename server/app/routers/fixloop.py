@@ -83,6 +83,38 @@ async def diagnoses(
     )
 
 
+@router.get("/repairs", response_model=Page, summary="List repairs")
+async def repairs(
+    diagnosis_id: UUID | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = None,
+    db: AsyncSession = Depends(session, scope="function"),
+):
+    return await page(
+        db,
+        Repair,
+        (Repair.diagnosis_id == diagnosis_id,) if diagnosis_id else (),
+        limit,
+        cursor,
+    )
+
+
+@router.get("/verifications", response_model=Page, summary="List verifications")
+async def verifications(
+    repair_id: UUID | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = None,
+    db: AsyncSession = Depends(session, scope="function"),
+):
+    return await page(
+        db,
+        Verification,
+        (Verification.repair_id == repair_id,) if repair_id else (),
+        limit,
+        cursor,
+    )
+
+
 @router.get(
     "/diagnoses/{id}",
     response_model=entity(Diagnosis),

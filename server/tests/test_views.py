@@ -172,3 +172,50 @@ async def test_chat_redacts_secrets_split_across_events(api):
     assert "REPLA" not in response.text
     assert "CE_ME" not in response.text
     assert "[REDACTED]" in response.text
+
+
+async def test_repairs_and_verifications_list_with_parent_filters(api):
+    client, app = api
+    p, v, c, t = await setup(client)
+    async with app.state.sessions() as db, db.begin():
+        candidate = AppVersion(project_id=UUID(p), parent_version_id=UUID(v), config={})
+        db.add(candidate)
+        await db.flush()
+        trace = Trace(app_version_id=UUID(v), input="i", output="o", status="ok")
+        db.add(trace)
+        await db.flush()
+        diagnosis = Diagnosis(
+            trace_id=trace.id, rule="judge", confidence=0.5, evidence={}
+        )
+        db.add(diagnosis)
+        await db.flush()
+        repair = Repair(
+            diagnosis_id=diagnosis.id,
+            new_version_id=candidate.id,
+            patch_type="prompt",
+            patch={},
+        )
+        left = Run(app_version_id=UUID(v), params={})
+        right = Run(app_version_id=candidate.id, params={})
+        db.add_all([repair, left, right])
+        await db.flush()
+        verification = Verification(
+            repair_id=repair.id,
+            baseline_run_id=left.id,
+            candidate_run_id=right.id,
+            target_passed=True,
+            regressions_count=0,
+            holdout_passed=True,
+            accepted=True,
+        )
+        db.add(verification)
+        await db.flush()
+        did, rid, vid = str(diagnosis.id), str(repair.id), str(verification.id)
+    assert [r["id"] for r in (await client.get("/v1/repairs")).json()["items"]] == [rid]
+    filtered = (await client.get(f"/v1/repairs?diagnosis_id={did}")).json()["items"]
+    assert [r["id"] for r in filtered] == [rid]
+    assert [
+        x["id"] for x in (await client.get("/v1/verifications")).json()["items"]
+    ] == [vid]
+    scored = (await client.get(f"/v1/verifications?repair_id={rid}")).json()["items"]
+    assert scored[0]["accepted"] is True
