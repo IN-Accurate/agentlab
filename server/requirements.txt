@@ -1,0 +1,14 @@
+fastapi==0.121.0
+uvicorn[standard]==0.38.0
+pydantic==2.12.3
+pydantic-settings==2.11.0
+SQLAlchemy==2.0.44
+asyncpg==0.30.0
+httpx==0.28.1
+sse-starlette==3.0.3
+cryptography==46.0.3
+jsonschema==4.25.1
+pytest==8.4.2
+pytest-asyncio==1.2.0
+ruff==0.14.3
+greenlet==3.5.6

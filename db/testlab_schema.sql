@@ -66,6 +66,7 @@ CREATE TABLE test_cases (
     split            text NOT NULL DEFAULT 'dev' CHECK (split IN ('dev', 'holdout')),
     input            text NOT NULL,
     expected         jsonb NOT NULL DEFAULT '{}'::jsonb,
+    archived_at      timestamptz,  -- soft delete; past run results are preserved
     created_at       timestamptz NOT NULL DEFAULT now()
 );
 
@@ -75,6 +76,7 @@ CREATE TABLE assertions (
     kind         text NOT NULL CHECK (kind IN ('deterministic', 'judge')),
     spec         jsonb NOT NULL DEFAULT '{}'::jsonb,
     position     integer NOT NULL DEFAULT 0,   -- deterministic assertions run first
+    archived_at  timestamptz,  -- soft delete; past assertion results are preserved
     created_at   timestamptz NOT NULL DEFAULT now()
 );
 
@@ -169,5 +171,19 @@ CREATE INDEX idx_diagnoses_trace        ON diagnoses(trace_id);
 CREATE INDEX idx_replays_original       ON replays(original_trace_id);
 CREATE INDEX idx_repairs_diagnosis      ON repairs(diagnosis_id);
 CREATE INDEX idx_verifications_repair   ON verifications(repair_id);
+
+-- TRIGGERS -----------------------------------------------------------------
+
+-- Version immutability is also enforced by an ORM event; this trigger closes
+-- the bypass for Core UPDATE statements issued by trusted server-side code.
+CREATE OR REPLACE FUNCTION reject_app_version_update() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'immutable_app_version: create a new version instead of updating %', OLD.id;
+END;
+$$;
+
+CREATE TRIGGER no_app_version_update BEFORE UPDATE ON app_versions
+FOR EACH ROW EXECUTE FUNCTION reject_app_version_update();
 
 COMMIT;
