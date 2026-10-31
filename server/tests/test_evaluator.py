@@ -7,7 +7,17 @@ import pytest
 import evaluator.llm
 from app.models import Assertion, AssertionResult, Run, RunResult, TestCase
 from evaluator import Evaluator
-from evaluator.agent import AgentResult, retrieve, run_agent, save_trace, span
+from evaluator.agent import (
+    AgentResult,
+    check,
+    retrieve,
+    run_agent,
+    run_tool,
+    save_trace,
+    span,
+    tool_definitions,
+    validate,
+)
 from evaluator.diagnosis import Facts, classify, judge
 from evaluator.llm import ModelClient, ModelError
 
@@ -344,3 +354,53 @@ async def test_unimplemented_operations_stay_explicit(api, monkeypatch):
     result = (await http.get(f"/v1/jobs/{job['job_id']}")).json()
     assert result["status"] == "failed"
     assert result["error"]["error"]["code"] == "evaluator_operation_unavailable"
+
+
+def tool_call(arguments, parameters=None):
+    tools = tool_definitions(
+        {"tools": [{"name": "t", "parameters": parameters or {}, "result": {"ok": 1}}]}
+    )
+    return run_tool(tools, {"function": {"name": "t", "arguments": arguments}})
+
+
+def test_tool_accepts_object_arguments_and_rejects_unparsable_ones():
+    assert tool_call({"order": 1})[1] == "ok"
+    assert tool_call('{"order": 1}')[1] == "ok"
+    assert tool_call(7)[2]["error"]["kind"] == "tool_arg"
+    assert tool_call("{bad")[2]["error"]["kind"] == "tool_arg"
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [{"type": "nope"}, {"$ref": "#/$defs/missing"}, {"$ref": "https://a.example/s"}],
+)
+def test_unusable_schemas_are_reported_not_raised(schema, monkeypatch):
+    def no_network(*args, **kwargs):
+        raise AssertionError("Schema triggered a remote fetch")
+
+    monkeypatch.setattr("urllib.request.urlopen", no_network)
+    assert tool_call("{}", schema)[2]["error"]["kind"] == "tool_schema"
+    assert check({"type": "json_schema", "schema": schema}, "{}") is None
+
+
+def test_local_schema_references_still_validate():
+    schema = {"$defs": {"n": {"type": "integer"}}, "$ref": "#/$defs/n"}
+    assert check({"type": "json_schema", "schema": schema}, "1") is True
+    assert check({"type": "json_schema", "schema": schema}, '"x"') is False
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        {"type": "max_length", "value": "many"},
+        {"type": "max_length"},
+        {"type": "unknown"},
+        {"type": "json_schema", "schema": {"type": "nope"}},
+    ],
+)
+def test_unevaluable_validators_do_not_become_failures(spec):
+    assert check(spec, "{}") is None
+    item = validate({"validators": [spec]}, "{}")[0]
+    assert item["status"] == "ok" and item["payload"]["passed"] is None
+    facts = Facts({"spans": [{"id": "v", **item}], "output": "{}"})
+    assert classify(facts) is None

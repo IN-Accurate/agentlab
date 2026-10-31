@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 
 from app.models import RetrievedChunk, Span, Trace
 from evaluator.llm import ModelError
@@ -104,10 +106,21 @@ def tool_definitions(config):
     return tools
 
 
+def schema_problems(schema, data):
+    """Returns None for an unusable schema; the empty registry blocks remote $refs."""
+    try:
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(schema, registry=Registry())
+        return [error.message for error in validator.iter_errors(data)]
+    except (SchemaError, Unresolvable):
+        return None
+
+
 def run_tool(tools, call):
     function = call.get("function") or {}
     name = function.get("name")
-    payload = {"name": name, "arguments": clip(str(function.get("arguments")))}
+    raw = function.get("arguments")
+    payload = {"name": name, "arguments": clip(str(raw))}
 
     def fail(kind, message):
         error = {"kind": kind, "message": message}
@@ -116,15 +129,12 @@ def run_tool(tools, call):
     if name not in tools:
         return fail("tool_arg", f"Unknown tool {name}")
     try:
-        arguments = json.loads(function.get("arguments") or "{}")
-    except ValueError:
+        arguments = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+    except (ValueError, TypeError):
         return fail("tool_arg", "Arguments are not valid JSON")
     schema = tools[name]["schema"]["function"].get("parameters") or {}
-    try:
-        problems = [
-            e.message for e in Draft202012Validator(schema).iter_errors(arguments)
-        ]
-    except SchemaError:
+    problems = schema_problems(schema, arguments)
+    if problems is None:
         return fail("tool_schema", "Tool schema is invalid")
     if problems:
         return fail("tool_arg", "; ".join(problems)[:500])
@@ -142,17 +152,19 @@ def check(spec, output):
     if kind == "not_contains":
         return str(value).lower() not in output.lower()
     if kind == "max_length":
-        return len(output) <= int(value)
+        try:
+            return len(output) <= int(value)
+        except (TypeError, ValueError):
+            return None
     if kind in {"json", "json_schema"}:
         try:
             data = json.loads(output)
         except ValueError:
             return False
-        try:
-            schema = spec.get("schema") or {}
-            return kind == "json" or Draft202012Validator(schema).is_valid(data)
-        except SchemaError:
-            return None
+        if kind == "json":
+            return True
+        problems = schema_problems(spec.get("schema") or {}, data)
+        return None if problems is None else not problems
     return None
 
 
@@ -166,9 +178,8 @@ def validate(config, output):
     for spec in config.get("validators") or []:
         passed = check(spec, output)
         payload = {"spec": spec, "passed": passed, "category": category(spec)}
-        spans.append(
-            span("validation", status="ok" if passed else "error", payload=payload)
-        )
+        status = "error" if passed is False else "ok"
+        spans.append(span("validation", status=status, payload=payload))
     return spans
 
 
