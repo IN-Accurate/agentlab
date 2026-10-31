@@ -17,9 +17,13 @@ from app.errors import AppError
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 RATE_LIMIT_MAX_KEYS = 10000
-# Bearer tokens need the credential floor (8+) and at least one digit, so
-# prose such as "Bearer authentication" passes through untouched.
-BEARER_TOKEN_PATTERN = r"\bBearer\s+(?=[A-Za-z0-9\-._~+/=]*\d)[A-Za-z0-9\-._~+/=]{8,}"
+# Bearer values match by syntax and minimum length (fail closed); exact
+# prose nouns are allowlisted so documentation stays readable.
+BEARER_PROSE_ALLOWLIST = ("authentication", "credential", "credentials")
+BEARER_TOKEN_PATTERN = (
+    r"\bBearer\s+(?!(?:" + "|".join(BEARER_PROSE_ALLOWLIST) + r")\b)"
+    r"[A-Za-z0-9\-._~+/=]{8,}"
+)
 
 
 class Redactor:

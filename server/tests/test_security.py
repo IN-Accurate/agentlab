@@ -194,6 +194,8 @@ def test_redactor_preserves_secret_lookalikes():
         redactor.text("Bearer authentication is common.")
         == "Bearer authentication is common."
     )
+    assert redactor.text("key Bearer abcdefgh") == "key Bearer [REDACTED]"
+    assert redactor.text("Bearer abcdefg ok") == "Bearer abcdefg ok"
     assert (
         redactor.text("Bearer tokens must be rotated.")
         == "Bearer tokens must be rotated."
@@ -222,6 +224,7 @@ def test_reject_secrets_ignores_lookalikes(value):
     [
         "sk-abcdefghij1234567890",
         "Bearer abcdefghij1234567890",
+        "Bearer abcdefgh",
         {"nested": ["sk-abcdefghij1234567890"]},
     ],
 )
