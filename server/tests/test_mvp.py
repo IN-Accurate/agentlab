@@ -43,6 +43,7 @@ def test_mvp_result_validation_mirrors_table_checks():
         {"grounding_score": 1.5},
         {"grounding_score": -0.1},
         {"failure_type": "unknown_bug"},
+        {"run_id": ""},
     ]:
         with pytest.raises(ValidationError):
             RunResult(**demo_payload(**bad))
@@ -86,6 +87,9 @@ async def test_mvp_run_crud(api):
         await client.post(
             "/v1/mvp/runs", json=demo_payload(run_id="r3", verdict="maybe")
         )
+    ).status_code == 422
+    assert (
+        await client.post("/v1/mvp/runs", json=demo_payload(run_id=""))
     ).status_code == 422
 
 
