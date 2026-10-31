@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app.db import record
 from app.errors import AppError
 from app.models import Assertion, AssertionResult, Diagnosis, TestCase
-from evaluator.diagnosis import Facts, diagnose
+from evaluator.diagnosis import Facts, classify, judge
 from evaluator.llm import ModelClient, ModelError
 
 
@@ -59,15 +59,17 @@ async def run_diagnosis(payload, context):
         failures = await assertion_failures(db, UUID(str(target["id"])))
     else:
         case, failures = await source_case(db, trace_id), []
-    credential = options.get("judge_credential_id") or options.get("credential_id")
-    model = (
-        ModelClient.from_context(context, credential, judge=True)
-        if credential
-        else None
-    )
-    rule, confidence, evidence = await diagnose(
-        Facts(target["trace"], case, failures), model
-    )
+    facts = Facts(target["trace"], case, failures)
+    found = classify(facts)
+    if found is None:
+        credential = options.get("judge_credential_id") or options.get("credential_id")
+        model = (
+            ModelClient.from_context(context, credential, judge=True)
+            if credential
+            else None
+        )
+        found = await judge(model, facts)
+    rule, confidence, evidence = found
     row = Diagnosis(
         trace_id=trace_id, rule=rule, confidence=confidence, evidence=evidence
     )

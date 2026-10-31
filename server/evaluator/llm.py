@@ -114,6 +114,8 @@ class ModelClient:
                 error = failure(response.status_code, raw)
                 if response.status_code not in RETRYABLE:
                     raise error
+            except httpx.DecodingError as exc:
+                raise ModelError("provider", "Malformed model response") from exc
             except httpx.TimeoutException:
                 error = ModelError("timeout", "Model call timed out")
             except httpx.TransportError:

@@ -219,7 +219,3 @@ async def judge(model, facts):
         "model": model.model,
     }
     return "judge", bounded(verdict.get("confidence")), evidence
-
-
-async def diagnose(facts, model=None):
-    return classify(facts) or await judge(model, facts)

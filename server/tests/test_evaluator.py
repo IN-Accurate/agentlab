@@ -94,6 +94,20 @@ async def test_client_rejects_malformed_and_oversized_replies(monkeypatch):
         await client(lambda r: completion()).complete([])
 
 
+async def test_client_reports_corrupt_compressed_reply_without_retrying():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(
+            200, headers={"content-encoding": "gzip"}, content=b"not gzip"
+        )
+
+    with pytest.raises(ModelError) as error:
+        await client(handler).complete([])
+    assert error.value.kind == "provider" and len(calls) == 1
+
+
 def test_retrieve_applies_filters_and_top_k():
     assert retrieve(CONFIG, "refund policy?")[0]["source"] == "refund-policy"
     assert len(retrieve(CONFIG, "refund policy?")) == 1
@@ -310,6 +324,32 @@ async def test_diagnose_api_confirms_retrieval_miss_without_model_call(
     assert body["rule"] == "retrieval_miss" and body["trace_id"] == trace_id
     assert body["evidence"]["retrieved_sources"] == ["shipping"]
     assert calls == []
+
+
+async def test_diagnose_api_matches_rule_without_usable_judge_credential(
+    api, monkeypatch
+):
+    http, app = api
+    p, v, _ = await setup(http, app, monkeypatch, lambda r: completion())
+    credential = await http.post(
+        "/v1/credentials",
+        json={"provider": "custom", "model": "m", "api_key": "secret-key"},
+    )
+    result_id, _ = await failed_result(
+        app,
+        p,
+        v,
+        "Refund window?",
+        "Refunds within 60 days",
+        {"reference": "30 days", "source": "refund-policy"},
+        {"type": "contains", "value": "30 days"},
+    )
+    response = await http.post(
+        f"/v1/run-results/{result_id}/diagnose",
+        json={"credential_id": credential.json()["credential_id"]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["rule"] == "retrieval_miss"
 
 
 async def test_diagnose_api_uses_judge_for_unmatched_trace(api, monkeypatch):
