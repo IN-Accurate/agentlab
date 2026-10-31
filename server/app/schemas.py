@@ -295,7 +295,7 @@ class TraceDetail(BaseModel):
 
 
 class RunResult(RequestModel):
-    run_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1, pattern=r"^[^/]+$")
     parent_run_id: str | None = None
     query: str
     retrieved_chunks: list[dict[str, Any]]
