@@ -15,6 +15,7 @@ permissions:
 concurrency:
   group: publish
   cancel-in-progress: false
+  queue: max
 
 jobs:
   publish:
@@ -30,6 +31,7 @@ jobs:
       # Older or rerun commits must not replace latest.
       - name: Check main tip
         id: tip
+        shell: bash
         run: |
           tip="$(git ls-remote origin refs/heads/main | cut -f1)"
           if [ "$tip" = "$SHA" ]; then current=true; else current=false; fi
