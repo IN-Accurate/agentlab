@@ -71,12 +71,6 @@ def create_app(settings=None, evaluator=None):
     app.state.credential_store = CredentialStore(on_evict=app.state.redactor.discard)
     app.state.job_store = JobStore()
     app.state.rate_limits = {}
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[x.strip() for x in settings.cors_origins.split(",")],
-        allow_methods=["GET", "POST", "PATCH", "DELETE"],
-        allow_headers=["Content-Type", "X-Api-Key"],
-    )
 
     @app.middleware("http")
     async def guard(request, call_next):
@@ -116,6 +110,15 @@ def create_app(settings=None, evaluator=None):
             except AppError as exc:
                 return reply(request, exc.code, exc.message, exc.status)
         return await call_next(request)
+
+    # Registered after guard so CORS runs outermost: preflights are answered
+    # before auth, and guard errors leave with CORS headers attached.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[x.strip() for x in settings.cors_origins.split(",")],
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_headers=["Content-Type", "X-Api-Key"],
+    )
 
     def reply(request, code, message, status, details=None):
         body = error_body(code, message, details)

@@ -14,6 +14,8 @@ from pydantic import (
     model_validator,
 )
 
+from app.security import BEARER_TOKEN_PATTERN
+
 
 class RequestModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -34,9 +36,10 @@ def reject_secrets(value):
         for item in value:
             reject_secrets(item)
     elif isinstance(value, str) and re.search(
-        # Realistic lengths only (sk- 20+, Bearer 8+): "sk-learn" and
-        # "Bearer tokens must ..." are ordinary prose, not credentials.
-        r"\bsk-[A-Za-z0-9_-]{20,}|\bBearer\s+[A-Za-z0-9\-._~+/=]{8,}",
+        # Realistic lengths only (sk- 20+, Bearer 8+ with a digit): "sk-learn",
+        # "Bearer tokens must ..." and "Bearer authentication" are ordinary
+        # prose, not credentials.
+        r"\bsk-[A-Za-z0-9_-]{20,}|" + BEARER_TOKEN_PATTERN,
         value,
         re.I,
     ):

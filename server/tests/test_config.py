@@ -82,3 +82,21 @@ async def test_job_events_end_cleanly_when_job_expires():
         assert response.status_code == 200
         assert "event: error" in response.text
         assert "job_not_found" in response.text
+
+
+async def test_preflight_succeeds_with_api_key_set():
+    app = create_app(Settings(_env_file=None, testlab_api_key="test-key-123"))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://testserver"
+    ) as client:
+        response = await client.options(
+            "/v1/projects",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert response.status_code == 200
+        assert (
+            response.headers["access-control-allow-origin"] == "http://localhost:3000"
+        )

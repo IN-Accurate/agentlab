@@ -3,9 +3,12 @@ from uuid import UUID
 from app.models import (
     AppVersion,
     Run,
+    RunResult,
+    TestCase,
     Trace,
     Diagnosis,
     Repair,
+    Span,
     Verification,
 )
 from test_runs import setup
@@ -92,3 +95,59 @@ async def test_dashboard_formats_existing_verdict_without_deciding(api):
     assert (
         await client.get(f"/v1/projects/{p}/dashboard/series?metric=pass_rate")
     ).status_code == 200
+
+
+async def test_dashboard_counts_shared_trace_latency_once_per_run(api):
+    client, app = api
+    p, v, c, t = await setup(client)
+    async with app.state.sessions() as db, db.begin():
+        cases = [
+            TestCase(
+                project_id=UUID(p),
+                origin="user",
+                split="dev",
+                input=f"Query {i}",
+                expected={},
+            )
+            for i in range(2)
+        ]
+        db.add_all(cases)
+        await db.flush()
+        run = Run(app_version_id=UUID(v), params={})
+        db.add(run)
+        await db.flush()
+        shared = Trace(app_version_id=UUID(v), input="s", output="s", status="ok")
+        solo = Trace(app_version_id=UUID(v), input="u", output="u", status="ok")
+        db.add_all([shared, solo])
+        await db.flush()
+        db.add_all(
+            [
+                RunResult(
+                    run_id=run.id,
+                    test_case_id=UUID(t),
+                    passed=True,
+                    trace_id=shared.id,
+                ),
+                RunResult(
+                    run_id=run.id,
+                    test_case_id=cases[0].id,
+                    passed=True,
+                    trace_id=shared.id,
+                ),
+                RunResult(
+                    run_id=run.id,
+                    test_case_id=cases[1].id,
+                    passed=True,
+                    trace_id=solo.id,
+                ),
+                Span(
+                    trace_id=shared.id,
+                    sdk_span_id="shared",
+                    type="llm",
+                    latency_ms=10,
+                ),
+                Span(trace_id=solo.id, sdk_span_id="solo", type="llm", latency_ms=1000),
+            ]
+        )
+    dashboard = (await client.get(f"/v1/projects/{p}/dashboard")).json()
+    assert dashboard["versions"][0]["latency_p50"] == 505.0

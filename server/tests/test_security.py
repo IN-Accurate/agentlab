@@ -75,7 +75,7 @@ def test_encrypted_credential_and_redaction(caplog):
     finally:
         logger.removeFilter(log_filter)
     assert key not in caplog.text
-    assert redactor.text("Bearer placeholder-token") == "Bearer [REDACTED]"
+    assert redactor.text("Bearer placeholder-token-7") == "Bearer [REDACTED]"
     store.delete(identifier)
     with pytest.raises(AppError):
         credential_metadata(identifier, store)
@@ -191,6 +191,10 @@ def test_redactor_preserves_secret_lookalikes():
     redactor = Redactor()
     assert redactor.text("We use sk-learn for models.") == "We use sk-learn for models."
     assert (
+        redactor.text("Bearer authentication is common.")
+        == "Bearer authentication is common."
+    )
+    assert (
         redactor.text("Bearer tokens must be rotated.")
         == "Bearer tokens must be rotated."
     )
@@ -201,7 +205,13 @@ def test_redactor_preserves_secret_lookalikes():
 
 
 @pytest.mark.parametrize(
-    "value", ["sk-learn", "Bearer tokens must be rotated", "the Bearer of news"]
+    "value",
+    [
+        "sk-learn",
+        "Bearer tokens must be rotated",
+        "the Bearer of news",
+        "Bearer authentication",
+    ],
 )
 def test_reject_secrets_ignores_lookalikes(value):
     reject_secrets(value)
@@ -332,3 +342,18 @@ def test_rate_limit_table_is_bounded():
     )
     rate_limit(request, 20)
     assert len(buckets) <= RATE_LIMIT_MAX_KEYS
+
+
+def test_production_requires_api_key():
+    with pytest.raises(ValueError, match="TESTLAB_API_KEY"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            app_encryption_key=Fernet.generate_key().decode(),
+        )
+    Settings(
+        _env_file=None,
+        app_env="production",
+        app_encryption_key=Fernet.generate_key().decode(),
+        testlab_api_key="k",
+    )

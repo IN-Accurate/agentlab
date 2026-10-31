@@ -25,6 +25,8 @@ class Settings(BaseSettings):
             raise ValueError("APP_ENCRYPTION_KEY is required in production")
         if self.app_env == "production" and self.testlab_allow_insecure_local:
             raise ValueError("Insecure localhost URLs are development-only")
+        if self.app_env == "production" and not self.testlab_api_key:
+            raise ValueError("TESTLAB_API_KEY is required in production")
         if self.app_encryption_key:
             try:
                 Fernet(self.app_encryption_key)

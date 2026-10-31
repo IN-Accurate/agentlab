@@ -55,7 +55,10 @@ async def dashboard(db, project_id):
     run_by_trace = defaultdict(list)
     for result, case in rows:
         results_by_run[result.run_id].append((result, case))
-        if result.trace_id is not None:
+        if (
+            result.trace_id is not None
+            and result.run_id not in run_by_trace[result.trace_id]
+        ):
             run_by_trace[result.trace_id].append(result.run_id)
     latency_by_run = defaultdict(list)
     if run_by_trace:

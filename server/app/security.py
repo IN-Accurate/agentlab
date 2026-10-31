@@ -17,6 +17,9 @@ from app.errors import AppError
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 RATE_LIMIT_MAX_KEYS = 10000
+# Bearer tokens need the credential floor (8+) and at least one digit, so
+# prose such as "Bearer authentication" passes through untouched.
+BEARER_TOKEN_PATTERN = r"\bBearer\s+(?=[A-Za-z0-9\-._~+/=]*\d)[A-Za-z0-9\-._~+/=]{8,}"
 
 
 class Redactor:
@@ -74,14 +77,9 @@ class Redactor:
                     matches.append((start, start + length))
             for start, end in reversed(matches):
                 value = value[:start] + "[REDACTED]" + value[end:]
-        # Secret-like patterns require realistic lengths: sk- needs 20+
-        # characters and Bearer tokens need 8+ (the credential floor), so
-        # prose such as "sk-learn" or "Bearer tokens must ..." passes through.
-        value = re.sub(
-            r"(?i)\bBearer\s+[A-Za-z0-9\-._~+/=]{8,}",
-            "Bearer [REDACTED]",
-            value,
-        )
+        # Secret-like patterns require realistic lengths (see BEARER_TOKEN_PATTERN):
+        # sk- needs 20+ characters, so prose such as "sk-learn" passes through.
+        value = re.sub(BEARER_TOKEN_PATTERN, "Bearer [REDACTED]", value, flags=re.I)
         return re.sub(r"\bsk-[A-Za-z0-9_-]{20,}", "[REDACTED]", value)
 
     def scrub(self, value):
