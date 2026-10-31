@@ -100,3 +100,17 @@ async def test_preflight_succeeds_with_api_key_set():
         assert (
             response.headers["access-control-allow-origin"] == "http://localhost:3000"
         )
+
+
+async def test_chunked_body_without_length_rejected():
+    app = create_app(Settings(_env_file=None))
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    request = httpx.Request(
+        "POST",
+        "http://testserver/v1/projects",
+        headers=[(b"transfer-encoding", b"chunked")],
+    )
+    response = await transport.handle_async_request(request)
+    assert response.status_code == 411
+    await response.aread()
+    assert response.json()["error"]["code"] == "length_required"

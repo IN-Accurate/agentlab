@@ -75,6 +75,16 @@ def create_app(settings=None, evaluator=None):
     @app.middleware("http")
     async def guard(request, call_next):
         if request.url.path.startswith("/v1/"):
+            transfer = request.headers.get("transfer-encoding", "")
+            if "chunked" in transfer.lower() and not request.headers.get(
+                "content-length"
+            ):
+                return reply(
+                    request,
+                    "length_required",
+                    "Content-Length is required",
+                    411,
+                )
             length = request.headers.get("content-length")
             if length and length.isdigit() and int(length) > MAX_BODY_BYTES:
                 return reply(
