@@ -82,7 +82,6 @@ async def ingest(db, data, redactor):
             "invalid_span_parent", "Parent span does not exist in this trace", 422
         )
     rows = {}
-    chunks = []
     while pending:
         ready = [
             span
@@ -112,18 +111,6 @@ async def ingest(db, data, redactor):
     for row, span in rows.values():
         for chunk in span.chunks:
             db.add(RetrievedChunk(span_id=row.id, **redactor.scrub(chunk.model_dump())))
-            # Span IDs are pre-assigned uuid4s, so one flush after the loop
-            # persists every span instead of rescanning per span.
-            db.add(row)
-            chunks += [
-                RetrievedChunk(span_id=row.id, **redactor.scrub(chunk.model_dump()))
-                for chunk in span.chunks
-            ]
-            existing[span.sdk_span_id] = row
-            del pending[span.sdk_span_id]
-    # No relationships are declared, so spans must reach the database first.
-    await db.flush()
-    db.add_all(chunks)
     await db.flush()
     return await details(db, data.id)
 
