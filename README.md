@@ -53,7 +53,7 @@ Trace ➔ Test ➔ Diagnose ➔ Confirm ➔ Repair ➔ Verify
 ### Prerequisites
 
 * Python 3.11+
-* Node 18+ (the `web/` app was built with Node 26 via `nvm`)
+* Node 18+ (the `client/` app was built with Node 26 via `nvm`)
 * A Postgres database (Neon recommended). Use a **direct** connection string, not the pooler, for tests.
 
 ### 1. Backend API
@@ -69,12 +69,12 @@ Verify: `curl localhost:8000/health` → `{"status":"ok"}`. Interactive docs at 
 ### 2. Frontend
 
 ```sh
-cd web
+cd client
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173. The dev server proxies API calls to the backend on `:8000`, so keep both running. See [web/README.md](web/frontend_README) for build config and details.
+Open http://localhost:5173. The dev server proxies API calls to the backend on `:8000`, so keep both running. See [client/frontend_README.md](client/frontend_README.md) for build config and details.
 
 ### 3. Tests (backend)
 

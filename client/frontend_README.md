@@ -5,7 +5,7 @@ ChatGPT-style frontend for TestLab: a conversational workspace (connect an agent
 ## Quick start
 
 ```sh
-cd web
+cd client
 npm install
 npm run dev
 ```
@@ -17,7 +17,7 @@ Open http://localhost:5173. The dev server proxies `/v1`, `/health`, and `/opena
 | Command           | Purpose                                  |
 | ----------------- | ---------------------------------------- |
 | `npm run dev`     | Dev server with hot reload (`:5173`)     |
-| `npm run build`   | Production build into `web/dist/`        |
+| `npm run build`   | Production build into `client/dist/`     |
 | `npm run preview` | Serve the production build locally       |
 
 ## Configuration
@@ -39,7 +39,7 @@ All data comes from the FastAPI backend — there are no baked-in fixtures, so a
 ## Layout
 
 ```
-web/
+client/
 ├── index.html            # Entry HTML (Inter via Google Fonts, system fallback)
 ├── vite.config.js        # Dev proxy for /v1 → localhost:8000
 └── src/
