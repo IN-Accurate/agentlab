@@ -269,11 +269,13 @@ class DetailResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-def entity(model):
+def entity(model, overrides=None):
     fields = {}
     for column in model.__table__.columns:
         kind = column.type.python_type
         fields[column.name] = (kind | None if column.nullable else kind, ...)
+    if overrides:
+        fields.update(overrides)
     return create_model(
         model.__name__ + "Response",
         __config__=ConfigDict(from_attributes=True),
@@ -293,7 +295,7 @@ class TraceDetail(BaseModel):
 
 
 class RunResult(RequestModel):
-    run_id: str
+    run_id: str = Field(min_length=1)
     parent_run_id: str | None = None
     query: str
     retrieved_chunks: list[dict[str, Any]]

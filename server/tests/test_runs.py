@@ -161,3 +161,20 @@ async def test_evaluator_can_commit_per_batch_with_session_factory(api):
     assert job["status"] == "completed", job
     async with app.state.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(Run)) == 1
+
+
+async def test_legacy_run_read_accepts_stored_list_chunks(api):
+    client, app = api
+    _, v, _, _ = await setup(client)
+    async with app.state.sessions() as db, db.begin():
+        row = Run(
+            app_version_id=UUID(v),
+            params={},
+            retrieved_chunks=[{"id": "c1", "text": "t", "score": 0.5}],
+        )
+        db.add(row)
+        await db.flush()
+        run_id = str(row.id)
+    response = await client.get(f"/v1/runs/{run_id}")
+    assert response.status_code == 200, response.text
+    assert response.json()["retrieved_chunks"][0]["id"] == "c1"
