@@ -290,3 +290,18 @@ class TraceDetail(BaseModel):
     created_at: datetime
     spans: list[dict[str, Any]]
     span_tree: list[dict[str, Any]]
+
+
+class RunResult(RequestModel):
+    run_id: str
+    parent_run_id: str | None = None
+    query: str
+    retrieved_chunks: list[dict[str, Any]]
+    answer: str
+    grounding_score: float = Field(ge=0, le=1)
+    verdict: Literal["pass", "fail"]
+    failure_type: Literal["retrieval_miss", "hallucination", "prompt_issue"] | None = (
+        None
+    )
+    diagnosis: str | None = None
+    model: str

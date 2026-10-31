@@ -23,6 +23,7 @@ from app.routers import (
     dashboard,
     fixloop,
     jobs,
+    mvp,
     projects,
     runs,
     tests,
@@ -209,6 +210,7 @@ def create_app(settings=None, evaluator=None):
     app.include_router(tests.router)
     app.include_router(runs.router)
     app.include_router(jobs.router)
+    app.include_router(mvp.router)
     app.include_router(fixloop.router)
     app.include_router(dashboard.router)
     app.include_router(chat.router)
