@@ -47,12 +47,8 @@ async def events(state, db, prepared):
                     )
                 text += data["text"]
                 continue
-            if text:
-                yield {
-                    "event": "message.delta",
-                    "data": json.dumps({"text": state.redactor.text(text)}),
-                }
-                text = ""
+            # Text stays buffered across non-delta events: a secret can straddle
+            # them, so only the final flush below may emit buffered text.
             if name == "tool.result" and (
                 data.get("type") not in CARDS or not isinstance(data.get("data"), dict)
             ):

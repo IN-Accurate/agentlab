@@ -151,3 +151,24 @@ async def test_dashboard_counts_shared_trace_latency_once_per_run(api):
         )
     dashboard = (await client.get(f"/v1/projects/{p}/dashboard")).json()
     assert dashboard["versions"][0]["latency_p50"] == 505.0
+
+
+async def test_chat_redacts_secrets_split_across_events(api):
+    client, app = api
+    p, v, c, t = await setup(client)
+    body = {"message": "Explain this", "history": [], "credential_id": c}
+
+    class SplitFixture:
+        async def stream_chat(self, payload, context):
+            yield {"event": "message.delta", "data": {"text": "REPLA"}}
+            yield {"event": "step.started", "data": {"step": "fixture"}}
+            yield {"event": "message.delta", "data": {"text": "CE_ME"}}
+            yield {"event": "done", "data": {}}
+
+    app.state.evaluator = SplitFixture()
+    response = await client.post(f"/v1/projects/{p}/chat", json=body)
+    assert response.status_code == 200
+    assert "REPLACE_ME" not in response.text
+    assert "REPLA" not in response.text
+    assert "CE_ME" not in response.text
+    assert "[REDACTED]" in response.text
