@@ -15,7 +15,8 @@ export function useFetch(key, fetcher) {
     );
     fetcher().then(
       (data) => {
-        if (!cancelled) setState({ key, data, error: null, loading: false });
+        if (!cancelled)
+          setState((s) => (s.key === key ? { key, data, error: null, loading: false } : s));
       },
       (error) => {
         if (!cancelled)

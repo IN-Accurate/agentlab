@@ -77,7 +77,7 @@ async function latestChange(projectId) {
   const all = [];
   let cursor = null;
   for (;;) {
-    const params = new URLSearchParams({ limit: '100' });
+    const params = new URLSearchParams({ limit: '100', project_id: projectId });
     if (cursor) params.set('cursor', cursor);
     const page = await api(`/v1/repairs?${params}`);
     all.push(...(page.items ?? []));
@@ -89,15 +89,12 @@ async function latestChange(projectId) {
   );
   for (const repair of items) {
     try {
-      const diagnosis = await api(`/v1/diagnoses/${repair.diagnosis_id}`);
-      const trace = await api(`/v1/traces/${diagnosis.trace_id}`);
-      const version = await api(`/v1/versions/${trace.app_version_id}`);
-      if (version.project_id !== projectId) continue;
       const scored = await api(`/v1/verifications?repair_id=${repair.id}&limit=50`);
       const verification = [...(scored.items ?? [])].sort((a, b) =>
         String(a.created_at) < String(b.created_at) ? 1 : -1,
       )[0];
       if (!verification) continue;
+      const diagnosis = await api(`/v1/diagnoses/${repair.diagnosis_id}`);
       return { repair, diagnosis, verification };
     } catch {
       continue;

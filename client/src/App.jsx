@@ -54,7 +54,9 @@ export default function App() {
 
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
   const lastConnection = chats.find((c) => c.connection)?.connection ?? null;
-  const chatCredentialId = lastConnection?.credentialId ?? null;
+  const chatCredentialId =
+    chats.find((c) => c.connection?.projectId === dash.projectId)?.connection
+      ?.credentialId ?? null;
 
   const patchDash = useCallback((patch) => {
     setDash((d) => ({ ...d, ...patch }));

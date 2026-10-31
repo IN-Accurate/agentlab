@@ -43,13 +43,12 @@ export default function ChatView({
     setChatError('');
     const userMsg = { id: nextId(), role: 'user', text, kind, cards: [] };
     const shell = { id: nextId(), role: 'assistant', text: '', cards: [] };
-    let nextTitle = null;
+    const nextTitle = kind === 'chat' && !chat.titleSet ? titleFor(text) : null;
     onPatch(chat.id, (c) => {
       const patch = { messages: [...c.messages, userMsg, shell], streaming: true };
-      if (kind === 'chat' && !c.titleSet) {
-        patch.title = titleFor(text);
+      if (nextTitle && !c.titleSet) {
+        patch.title = nextTitle;
         patch.titleSet = true;
-        nextTitle = patch.title;
       }
       return { ...c, ...patch };
     });

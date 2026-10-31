@@ -1,10 +1,19 @@
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session, require, page, record
-from app.models import RunResult, Trace, Diagnosis, Replay, Repair, Verification
+from app.models import (
+    RunResult,
+    Trace,
+    Diagnosis,
+    Replay,
+    Repair,
+    Verification,
+    AppVersion,
+)
 from app.schemas import (
     DiagnoseRequest,
     ReplayCreate,
@@ -86,17 +95,23 @@ async def diagnoses(
 @router.get("/repairs", response_model=Page, summary="List repairs")
 async def repairs(
     diagnosis_id: UUID | None = None,
+    project_id: UUID | None = None,
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
     db: AsyncSession = Depends(session, scope="function"),
 ):
-    return await page(
-        db,
-        Repair,
-        (Repair.diagnosis_id == diagnosis_id,) if diagnosis_id else (),
-        limit,
-        cursor,
-    )
+    filters = []
+    if diagnosis_id:
+        filters.append(Repair.diagnosis_id == diagnosis_id)
+    if project_id:
+        scoped = (
+            select(Diagnosis.id)
+            .join(Trace, Trace.id == Diagnosis.trace_id)
+            .join(AppVersion, AppVersion.id == Trace.app_version_id)
+            .where(AppVersion.project_id == project_id)
+        )
+        filters.append(Repair.diagnosis_id.in_(scoped))
+    return await page(db, Repair, tuple(filters), limit, cursor)
 
 
 @router.get("/verifications", response_model=Page, summary="List verifications")

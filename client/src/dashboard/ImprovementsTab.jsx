@@ -38,7 +38,7 @@ async function projectRepairs(projectId) {
   const all = [];
   let cursor = null;
   for (;;) {
-    const params = new URLSearchParams({ limit: '100' });
+    const params = new URLSearchParams({ limit: '100', project_id: projectId });
     if (cursor) params.set('cursor', cursor);
     const page = await api(`/v1/repairs?${params}`);
     all.push(...(page.items ?? []));
@@ -49,9 +49,7 @@ async function projectRepairs(projectId) {
   for (const repair of all) {
     try {
       const diagnosis = await api(`/v1/diagnoses/${repair.diagnosis_id}`);
-      const trace = await api(`/v1/traces/${diagnosis.trace_id}`);
-      const version = await api(`/v1/versions/${trace.app_version_id}`);
-      if (version.project_id === projectId) out.push({ repair, diagnosis });
+      out.push({ repair, diagnosis });
     } catch {
       continue;
     }
@@ -79,7 +77,7 @@ async function loadChain(projectId, review) {
   const verification = [...(scored.items ?? [])].sort((a, b) =>
     String(a.created_at) < String(b.created_at) ? 1 : -1,
   )[0];
-  if (!verification) return { repairs, chain: { ...picked, verification: null } };
+  if (!verification) return { repairs, chain: await finishChain(picked, null, null) };
   const scorecard = review?.verificationId
     ? await api(`/v1/verifications/${review.verificationId}`)
     : await api(`/v1/verifications/${verification.id}`);

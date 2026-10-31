@@ -1,4 +1,4 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.models import (
     AppVersion,
@@ -219,3 +219,6 @@ async def test_repairs_and_verifications_list_with_parent_filters(api):
     ] == [vid]
     scored = (await client.get(f"/v1/verifications?repair_id={rid}")).json()["items"]
     assert scored[0]["accepted"] is True
+    scoped = (await client.get(f"/v1/repairs?project_id={p}")).json()["items"]
+    assert [r["id"] for r in scoped] == [rid]
+    assert (await client.get(f"/v1/repairs?project_id={uuid4()}")).json()["items"] == []
