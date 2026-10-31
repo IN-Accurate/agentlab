@@ -5,6 +5,7 @@ from uuid import uuid4
 import asyncpg
 import httpx
 import pytest
+from sqlalchemy import event
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -32,10 +33,17 @@ async def api():
     await app.state.engine.dispose()
     engine_url, connect_args = settings.connection()
     engine = create_async_engine(
-        engine_url,
-        connect_args={**connect_args, "server_settings": {"search_path": schema}},
-        hide_parameters=True,
+        engine_url, connect_args=connect_args, hide_parameters=True
     )
+
+    # Neon drops extra startup parameters, so server_settings search_path
+    # would silently land sessions in public. Set it in-band instead.
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_search_path(dbapi_connection, connection_record):
+        dbapi_connection.await_(
+            dbapi_connection._connection.execute(f'SET search_path TO "{schema}"')
+        )
+
     app.state.engine = engine
     app.state.sessions = async_sessionmaker(engine, expire_on_commit=False)
     try:

@@ -81,6 +81,7 @@ async def ingest(db, data, redactor):
         raise AppError(
             "invalid_span_parent", "Parent span does not exist in this trace", 422
         )
+    rows = {}
     while pending:
         ready = [
             span
@@ -99,15 +100,17 @@ async def ingest(db, data, redactor):
                 **span.model_dump(exclude={"parent_sdk_span_id", "chunks", "payload"}),
                 payload=redactor.scrub(span.payload),
             )
-            # Span IDs are pre-assigned uuid4s, so one flush after the loop
-            # persists spans and chunks together instead of rescanning per span.
             db.add(row)
-            for chunk in span.chunks:
-                db.add(
-                    RetrievedChunk(span_id=row.id, **redactor.scrub(chunk.model_dump()))
-                )
+            rows[span.sdk_span_id] = (row, span)
             existing[span.sdk_span_id] = row
             del pending[span.sdk_span_id]
+        # Flush each wave: parents must be in the transaction before their
+        # children are inserted, and the unit of work cannot sort the
+        # self-referential spans table against retrieved_chunks on its own.
+        await db.flush()
+    for row, span in rows.values():
+        for chunk in span.chunks:
+            db.add(RetrievedChunk(span_id=row.id, **redactor.scrub(chunk.model_dump())))
     await db.flush()
     return await details(db, data.id)
 

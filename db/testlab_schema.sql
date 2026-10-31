@@ -84,8 +84,18 @@ CREATE TABLE assertions (
 
 CREATE TABLE runs (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    app_version_id  uuid NOT NULL REFERENCES app_versions(id),
+    app_version_id  uuid REFERENCES app_versions(id),
     params          jsonb NOT NULL DEFAULT '{}'::jsonb,  -- model, temperature, seed
+    run_id          text CONSTRAINT runs_run_id_unique UNIQUE,
+    parent_run_id   text CONSTRAINT runs_parent_run_id_fkey REFERENCES runs(run_id) ON DELETE SET NULL,
+    query           text,
+    retrieved_chunks jsonb NOT NULL DEFAULT '[]'::jsonb,
+    answer          text,
+    grounding_score double precision CONSTRAINT runs_grounding_score_check CHECK (grounding_score >= 0 AND grounding_score <= 1),
+    verdict         text CONSTRAINT runs_verdict_check CHECK (verdict IN ('pass', 'fail')),
+    failure_type    text CONSTRAINT runs_failure_type_check CHECK (failure_type IN ('retrieval_miss', 'hallucination', 'prompt_issue')),
+    diagnosis       text,
+    model           text,
     created_at      timestamptz NOT NULL DEFAULT now()
 );
 
@@ -171,6 +181,7 @@ CREATE INDEX idx_diagnoses_trace        ON diagnoses(trace_id);
 CREATE INDEX idx_replays_original       ON replays(original_trace_id);
 CREATE INDEX idx_repairs_diagnosis      ON repairs(diagnosis_id);
 CREATE INDEX idx_verifications_repair   ON verifications(repair_id);
+CREATE INDEX idx_runs_parent_run_id       ON runs(parent_run_id);
 
 -- TRIGGERS -----------------------------------------------------------------
 
