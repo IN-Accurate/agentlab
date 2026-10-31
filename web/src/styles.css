@@ -1,0 +1,118 @@
+:root {
+  --surface: #ffffff;
+  --sidebar: #f4f4f5;
+  --border: #e4e4e7;
+  --text: #18181b;
+  --muted: #52525b;
+  --primary: #18181b;
+  --primary-text: #ffffff;
+  --positive: #15803d;
+  --failure: #b91c1c;
+  --radius: 8px;
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--surface);
+}
+
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 18px;
+  padding: 4px 8px 12px;
+}
+
+.sidebar button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px;
+  cursor: pointer;
+}
+
+.sidebar button:hover {
+  background: var(--border);
+}
+
+.sidebar button.selected {
+  background: var(--border);
+  font-weight: 600;
+}
+
+.sidebar button:focus-visible,
+.new-chat:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.new-chat {
+  font-weight: 500;
+}
+
+.sidebar-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 12px 8px 4px;
+}
+
+.sidebar nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar nav button {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
+}
+
+.content {
+  flex: 1;
+  padding: 24px;
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .sidebar {
+    position: fixed;
+    z-index: 10;
+    height: 100vh;
+    transform: translateX(-100%);
+  }
+}

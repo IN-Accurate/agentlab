@@ -7,3 +7,5 @@ __pycache__/
 *.log
 .idea/
 CLAUDE.md
+node_modules/
+web/dist/
