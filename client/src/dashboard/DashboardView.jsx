@@ -235,6 +235,7 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
           labels={labels}
           dash={dash}
           patchDash={patchDash}
+          chatCredentialId={chatCredentialId}
         />
       )}
       {dialog ? (
