@@ -265,3 +265,7 @@ Why rules before judges? That is an evaluator policy for cheap, explainable chec
 7. Minute 7–8: walk payload/context integration and transaction ownership.
 8. Minute 8–9: explain job polling/SSE and stored dashboard verdicts.
 9. Minute 9–10: list remaining AI integration and frontend end-to-end checks.
+
+## 18. MVP runs endpoints
+
+`/v1/mvp/runs` records simplified evaluation runs in the shared `runs` table, keyed by client-supplied `run_id` instead of app versions. `POST /v1/mvp/runs` validates the RunResult model (verdict and failure_type literals plus the 0–1 grounding range mirror the table CHECKs, so violations return 422 instead of 409), requires an existing parent when `parent_run_id` is set (404), and returns 201; duplicate `run_id` values return 409. `GET /v1/mvp/runs/{run_id}` reads one run. `GET /v1/mvp/scorecard` returns `{total, by_verdict, by_failure_type}` with zero-filled groups. `GET /v1/mvp/runs/{run_id}/diff` returns the run, its parent, and whether the verdict changed; runs without a parent return 404. MVP queries only touch rows with `run_id` set, so legacy evaluator rows (NULL `run_id`) are excluded; conversely, legacy run reads now include the MVP columns as nulls.

@@ -15,7 +15,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from app.errors import AppError
@@ -136,11 +136,34 @@ class Assertion(Record, Base):
 
 class Run(Record, Base):
     __tablename__ = "runs"
-    app_version_id: Mapped[UUID] = mapped_column(ForeignKey("app_versions.id"))
+    app_version_id: Mapped[UUID | None] = mapped_column(ForeignKey("app_versions.id"))
     params: Mapped[dict] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
-    __table_args__ = (Index("idx_runs_version", "app_version_id"),)
+    run_id: Mapped[str | None] = mapped_column(Text)
+    parent_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("runs.run_id", ondelete="SET NULL", name="runs_parent_run_id_fkey")
+    )
+    query: Mapped[str | None] = mapped_column(Text)
+    retrieved_chunks: Mapped[list] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+    answer: Mapped[str | None] = mapped_column(Text)
+    grounding_score: Mapped[float | None] = mapped_column(DOUBLE_PRECISION)
+    verdict: Mapped[str | None] = mapped_column(Text)
+    failure_type: Mapped[str | None] = mapped_column(Text)
+    diagnosis: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (
+        Index("idx_runs_version", "app_version_id"),
+        UniqueConstraint("run_id", name="runs_run_id_unique"),
+        CheckConstraint("grounding_score >= 0 AND grounding_score <= 1"),
+        CheckConstraint("verdict IN ('pass', 'fail')"),
+        CheckConstraint(
+            "failure_type IN ('retrieval_miss', 'hallucination', 'prompt_issue')"
+        ),
+        Index("idx_runs_parent_run_id", "parent_run_id"),
+    )
 
 
 class RunResult(Record, Base):

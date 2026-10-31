@@ -76,7 +76,11 @@ async def runs(
     )
 
 
-@router.get("/runs/{id}", response_model=entity(Run), summary="Read a run")
+@router.get(
+    "/runs/{id}",
+    response_model=entity(Run, {"retrieved_chunks": (list, ...)}),
+    summary="Read a run",
+)
 async def get(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return record(await require(db, Run, id))
 
