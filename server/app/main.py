@@ -1,3 +1,4 @@
+import hmac
 import logging
 from contextlib import asynccontextmanager
 
@@ -7,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from starlette.exceptions import HTTPException
 
 from app.config import Settings
@@ -16,6 +17,19 @@ from app.errors import AppError, error_body
 from app.security import Redactor, RedactionFilter, rate_limit
 from app.store import CredentialStore, JobStore
 from app.schemas import HealthResponse, MetaResponse
+from app.routers import (
+    chat,
+    credentials,
+    dashboard,
+    fixloop,
+    jobs,
+    projects,
+    runs,
+    tests,
+    traces,
+)
+
+MAX_BODY_BYTES = 10_000_000
 
 
 def create_app(settings=None, evaluator=None):
@@ -54,18 +68,32 @@ def create_app(settings=None, evaluator=None):
     app.state.engine = engine
     app.state.evaluator = evaluator
     app.state.redactor = Redactor()
-    app.state.credential_store = CredentialStore()
+    app.state.credential_store = CredentialStore(on_evict=app.state.redactor.discard)
     app.state.job_store = JobStore()
     app.state.rate_limits = {}
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[x.strip() for x in settings.cors_origins.split(",")],
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "X-Api-Key"],
     )
 
     @app.middleware("http")
     async def guard(request, call_next):
+        if request.url.path.startswith("/v1/"):
+            length = request.headers.get("content-length")
+            if length and length.isdigit() and int(length) > MAX_BODY_BYTES:
+                return reply(
+                    request,
+                    "body_too_large",
+                    "Request body exceeds the 10MB limit",
+                    413,
+                )
+            key = settings.testlab_api_key
+            if key and not hmac.compare_digest(
+                request.headers.get("x-api-key", "").encode(), key.encode()
+            ):
+                return reply(request, "unauthorized", "Valid API key required", 401)
         if any(
             word in request.url.query.lower()
             for word in ("api_key", "apikey", "authorization")
@@ -112,6 +140,19 @@ def create_app(settings=None, evaluator=None):
     async def conflict(request: Request, exc: IntegrityError):
         return reply(request, "conflict", "Database constraint violation", 409)
 
+    @app.exception_handler(DBAPIError)
+    async def db_error(request: Request, exc: DBAPIError):
+        if "immutable_app_version" in str(exc):
+            return reply(
+                request,
+                "immutable_version",
+                "Create a new version instead of updating an existing one",
+                409,
+            )
+        return reply(
+            request, "internal_error", "An internal server error occurred", 500
+        )
+
     @app.exception_handler(Exception)
     async def unexpected(request: Request, exc: Exception):
         return reply(
@@ -149,8 +190,6 @@ def create_app(settings=None, evaluator=None):
             ],
         }
 
-    from app.routers import credentials, projects, traces, tests, runs, jobs, fixloop
-
     app.include_router(credentials.router)
     app.include_router(projects.router)
     app.include_router(traces.router)
@@ -158,8 +197,6 @@ def create_app(settings=None, evaluator=None):
     app.include_router(runs.router)
     app.include_router(jobs.router)
     app.include_router(fixloop.router)
-    from app.routers import dashboard, chat
-
     app.include_router(dashboard.router)
     app.include_router(chat.router)
     return app

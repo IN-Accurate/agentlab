@@ -1,3 +1,6 @@
+import ssl
+
+from cryptography.fernet import Fernet
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
@@ -10,6 +13,7 @@ class Settings(BaseSettings):
     app_encryption_key: str | None = None
     cors_origins: str = "http://localhost:3000"
     testlab_allow_insecure_local: bool = False
+    testlab_api_key: str | None = None
     credential_rate_limit: int = Field(20, ge=1)
     chat_rate_limit: int = Field(30, ge=1)
 
@@ -21,6 +25,13 @@ class Settings(BaseSettings):
             raise ValueError("APP_ENCRYPTION_KEY is required in production")
         if self.app_env == "production" and self.testlab_allow_insecure_local:
             raise ValueError("Insecure localhost URLs are development-only")
+        if self.app_encryption_key:
+            try:
+                Fernet(self.app_encryption_key)
+            except Exception as exc:
+                raise ValueError(
+                    "APP_ENCRYPTION_KEY must be a valid Fernet key"
+                ) from exc
         return self
 
     def connection(self):
@@ -31,8 +42,6 @@ class Settings(BaseSettings):
         args = {"timeout": 20}
         if mode:
             # Keep server certificate validation enabled for remote connections.
-            import ssl
-
             args["ssl"] = (
                 ssl.create_default_context()
                 if mode in {"require", "verify-ca", "verify-full"}

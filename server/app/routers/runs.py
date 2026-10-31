@@ -50,7 +50,7 @@ async def run(
     data: RunCreate,
     request: Request,
     background: BackgroundTasks,
-    db: AsyncSession = Depends(session),
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     prepared = await prepare(db, request.app.state, "run", data, project_id=id)
 
@@ -64,8 +64,8 @@ async def run(
 async def runs(
     version_id: UUID | None = None,
     limit: int = Query(50, ge=1, le=200),
-    cursor: UUID | None = None,
-    db: AsyncSession = Depends(session),
+    cursor: str | None = None,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     return await page(
         db,
@@ -77,7 +77,7 @@ async def runs(
 
 
 @router.get("/runs/{id}", response_model=entity(Run), summary="Read a run")
-async def get(id: UUID, db: AsyncSession = Depends(session)):
+async def get(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return record(await require(db, Run, id))
 
 
@@ -85,8 +85,8 @@ async def get(id: UUID, db: AsyncSession = Depends(session)):
 async def results(
     id: UUID,
     limit: int = Query(50, ge=1, le=200),
-    cursor: UUID | None = None,
-    db: AsyncSession = Depends(session),
+    cursor: str | None = None,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     await require(db, Run, id)
     return await page(db, RunResult, (RunResult.run_id == id,), limit, cursor)
@@ -97,7 +97,7 @@ async def results(
     response_model=dict,
     summary="Read a result and assertion evidence",
 )
-async def result(id: UUID, db: AsyncSession = Depends(session)):
+async def result(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     row = await require(db, RunResult, id)
     assertions = list(
         await db.scalars(
@@ -118,7 +118,7 @@ async def result(id: UUID, db: AsyncSession = Depends(session)):
     response_model=dict,
     summary="Summarize overall dev and holdout scores",
 )
-async def summary(id: UUID, db: AsyncSession = Depends(session)):
+async def summary(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     await require(db, Run, id)
     return await summarize(db, id)
 
@@ -128,7 +128,9 @@ async def summary(id: UUID, db: AsyncSession = Depends(session)):
     response_model=dict,
     summary="Compare two runs from one project",
 )
-async def compare(a: UUID, b: UUID, db: AsyncSession = Depends(session)):
+async def compare(
+    a: UUID, b: UUID, db: AsyncSession = Depends(session, scope="function")
+):
     left, right = await require(db, Run, a), await require(db, Run, b)
     lv, rv = (
         await require(db, AppVersion, left.app_version_id),

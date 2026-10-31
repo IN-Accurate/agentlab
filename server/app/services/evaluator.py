@@ -18,7 +18,13 @@ from app.models import (
     Trace,
     Verification,
 )
-from app.security import decrypt_credential, credential_record
+from app.routers.traces import details
+from app.security import (
+    credential_record,
+    decrypt_credential,
+    safe_http_client,
+    validate_url,
+)
 
 
 def require_backend(state):
@@ -48,8 +54,6 @@ async def target_context(db, model, identifier):
     else:
         raise AppError("invalid_target", "Unsupported operation target", 422)
     version = await require(db, AppVersion, trace.app_version_id)
-    from app.routers.traces import details
-
     target = {**record(row), "trace": await details(db, trace.id)}
     if isinstance(row, RunResult):
         target["test_case"] = record(await require(db, TestCase, row.test_case_id))
@@ -84,11 +88,19 @@ async def prepare(
             raise AppError(
                 "project_mismatch", "Version belongs to another project", 422
             )
+    if version is not None:
+        # Stored configs are re-validated on every use: DNS may have changed
+        # since the base URL passed its creation-time check.
+        agent = (version.config or {}).get("agent") or {}
+        if agent.get("base_url"):
+            await validate_url(
+                agent["base_url"], state.settings.testlab_allow_insecure_local
+            )
     cases = []
     if version and operation in {"run", "improve", "verify"}:
         query = (
             select(TestCase)
-            .where(TestCase.project_id == project_id)
+            .where(TestCase.project_id == project_id, TestCase.archived_at.is_(None))
             .order_by(TestCase.id)
         )
         if values.get("split"):
@@ -104,16 +116,19 @@ async def prepare(
             raise AppError("test_mismatch", "Tests do not match project and split", 422)
         if not rows:
             raise AppError("no_tests", "Add test cases before evaluating", 422)
-        for case in rows:
-            assertions = list(
-                await db.scalars(
-                    select(Assertion)
-                    .where(Assertion.test_case_id == case.id)
-                    .order_by(Assertion.position, Assertion.id)
-                )
+        by_case = {case.id: [] for case in rows}
+        for assertion in await db.scalars(
+            select(Assertion)
+            .where(
+                Assertion.test_case_id.in_([case.id for case in rows]),
+                Assertion.archived_at.is_(None),
             )
+            .order_by(Assertion.position, Assertion.id)
+        ):
+            by_case[assertion.test_case_id].append(assertion)
+        for case in rows:
             cases.append(
-                {**record(case), "assertions": [record(x) for x in assertions]}
+                {**record(case), "assertions": [record(x) for x in by_case[case.id]]}
             )
     allowed = {
         str(values[k])
@@ -133,7 +148,7 @@ async def prepare(
     return state.redactor.scrub(jsonable_encoder(payload)), allowed
 
 
-def context(db, state, allowed, progress=None):
+def context(db, state, allowed, progress=None, http_client=None):
     def check(identifier):
         identifier = str(identifier)
         if identifier not in allowed:
@@ -146,17 +161,29 @@ def context(db, state, allowed, progress=None):
 
     def metadata(identifier):
         value = credential_record(check(identifier), state.credential_store)
-        return {k: v for k, v in value.items() if k != "ciphertext"}
+        return {
+            k: v for k, v in value.items() if k not in {"ciphertext", "key_fingerprint"}
+        }
 
     def decrypt(identifier):
         return decrypt_credential(
             check(identifier), state.credential_store, state.settings
         )
 
+    def session_factory():
+        # Independent sessions the evaluator may commit per result or batch,
+        # so dashboards show progress before the job ends and a late failure
+        # keeps earlier results. Close them (ideally via `async with`).
+        child = state.sessions()
+        child.info["redactor"] = state.redactor
+        return child
+
     return {
         "session": db,
+        "session_factory": session_factory,
         "credentials": {"metadata": metadata, "decrypt_for_call": decrypt},
         "report_progress": progress,
+        "http_client": http_client,
     }
 
 
@@ -170,9 +197,13 @@ async def execute(db, state, prepared, progress=None):
             "Evaluator does not implement execute",
             503,
         )
-    result = function(payload, context(db, state, allowed, progress))
-    if inspect.isawaitable(result):
-        result = await result
+    client = safe_http_client(state.settings)
+    try:
+        result = function(payload, context(db, state, allowed, progress, client))
+        if inspect.isawaitable(result):
+            result = await result
+    finally:
+        await client.aclose()
     if hasattr(result, "model_dump"):
         result = result.model_dump(mode="json")
     if not isinstance(result, dict):
@@ -187,6 +218,9 @@ async def execute(db, state, prepared, progress=None):
             row = await require(db, Run, UUID(str(result["run_id"])))
             version = await require(db, AppVersion, row.app_version_id)
             if version.project_id != project_id:
+                raise ValueError()
+            expected = payload.get("options", {}).get("version_id")
+            if expected is not None and str(row.app_version_id) != str(expected):
                 raise ValueError()
         elif operation in {"diagnose", "replay", "repair"}:
             model = {"diagnose": Diagnosis, "replay": Replay, "repair": Repair}[

@@ -2,7 +2,8 @@ from uuid import UUID
 
 from sqlalchemy import select, func
 
-from app.models import Run
+from app.errors import AppError
+from app.models import AppVersion, Run
 
 
 async def setup(client):
@@ -69,8 +70,6 @@ async def test_evaluator_receives_preprocessed_inputs_and_scoped_credentials(api
                 "opaque": "Unmodified rubric"
             }
             assert context["credentials"]["decrypt_for_call"](c) == "REPLACE_ME"
-            from app.errors import AppError
-
             try:
                 context["credentials"]["decrypt_for_call"]("unrelated")
             except AppError as e:
@@ -111,3 +110,54 @@ async def test_invalid_backend_reference_rolls_back(api):
     assert job["status"] == "failed"
     async with app.state.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(Run)) == 0
+
+
+async def test_run_referencing_another_version_is_rejected(api):
+    client, app = api
+    p, v, c, t = await setup(client)
+    async with app.state.sessions() as db, db.begin():
+        other = AppVersion(project_id=UUID(p), config={})
+        db.add(other)
+        await db.flush()
+        other_id = str(other.id)
+
+    class WrongVersionFixture:
+        async def execute(self, payload, context):
+            row = Run(app_version_id=UUID(other_id), params={})
+            context["session"].add(row)
+            await context["session"].flush()
+            return {"run_id": str(row.id)}
+
+    app.state.evaluator = WrongVersionFixture()
+    response = await client.post(
+        f"/v1/projects/{p}/runs", json={"version_id": v, "credential_id": c}
+    )
+    job = (await client.get("/v1/jobs/" + response.json()["job_id"])).json()
+    assert job["status"] == "failed"
+    assert job["error"]["error"]["code"] == "invalid_evaluator_response"
+
+
+async def test_evaluator_can_commit_per_batch_with_session_factory(api):
+    client, app = api
+    p, v, c, t = await setup(client)
+    seen = {}
+
+    class BatchFixture:
+        async def execute(self, payload, context):
+            assert "session_factory" in context
+            assert context["http_client"] is not None
+            async with context["session_factory"]() as batch_db:
+                row = Run(app_version_id=UUID(v), params={"batched": True})
+                batch_db.add(row)
+                await batch_db.commit()
+                seen["run_id"] = str(row.id)
+            return {"run_id": seen["run_id"]}
+
+    app.state.evaluator = BatchFixture()
+    response = await client.post(
+        f"/v1/projects/{p}/runs", json={"version_id": v, "credential_id": c}
+    )
+    job = (await client.get("/v1/jobs/" + response.json()["job_id"])).json()
+    assert job["status"] == "completed", job
+    async with app.state.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(Run)) == 1

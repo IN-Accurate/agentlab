@@ -6,16 +6,7 @@ from app.db import record, require
 from app.models import Run, RunResult, TestCase, Span
 
 
-async def summarize(db, run_id):
-    run = await require(db, Run, run_id)
-    rows = list(
-        await db.execute(
-            select(RunResult, TestCase)
-            .join(TestCase, TestCase.id == RunResult.test_case_id)
-            .where(RunResult.run_id == run.id)
-        )
-    )
-
+def format_summary(run, rows, latency):
     def counts(selected):
         total = len(selected)
         passed = sum(result.passed for result, _ in selected)
@@ -26,15 +17,6 @@ async def summarize(db, run_id):
             "pass_rate": passed / total if total else None,
         }
 
-    latency = list(
-        await db.scalars(
-            select(Span.latency_ms).where(
-                Span.trace_id.in_([result.trace_id for result, _ in rows]),
-                Span.type == "llm",
-                Span.latency_ms.is_not(None),
-            )
-        )
-    )
     return {
         "run_id": str(run.id),
         "version_id": str(run.app_version_id),
@@ -47,3 +29,29 @@ async def summarize(db, run_id):
         "failures": [record(result) for result, _ in rows if not result.passed],
         "results": [{**record(result), "split": case.split} for result, case in rows],
     }
+
+
+async def summarize(db, run_id):
+    run = await require(db, Run, run_id)
+    rows = list(
+        await db.execute(
+            select(RunResult, TestCase)
+            .join(TestCase, TestCase.id == RunResult.test_case_id)
+            .where(RunResult.run_id == run.id)
+        )
+    )
+    trace_ids = [result.trace_id for result, _ in rows if result.trace_id is not None]
+    latency = (
+        list(
+            await db.scalars(
+                select(Span.latency_ms).where(
+                    Span.trace_id.in_(trace_ids),
+                    Span.type == "llm",
+                    Span.latency_ms.is_not(None),
+                )
+            )
+        )
+        if trace_ids
+        else []
+    )
+    return format_summary(run, rows, latency)

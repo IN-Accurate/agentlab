@@ -1,18 +1,17 @@
 import hashlib
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import page, record, require, session
+from app.db import page, record, require, require_live, session
 from app.errors import AppError
 from app.models import (
     AppVersion,
     Assertion,
-    AssertionResult,
     Project,
-    RunResult,
     TestCase,
     Trace,
 )
@@ -47,7 +46,9 @@ async def source_trace(db, project_id, trace_id):
     status_code=201,
     summary="Create a test case",
 )
-async def create(id: UUID, data: TestCreate, db: AsyncSession = Depends(session)):
+async def create(
+    id: UUID, data: TestCreate, db: AsyncSession = Depends(session, scope="function")
+):
     await require(db, Project, id)
     if data.source_trace_id:
         await source_trace(db, id, data.source_trace_id)
@@ -69,28 +70,42 @@ async def create(id: UUID, data: TestCreate, db: AsyncSession = Depends(session)
 async def listing(
     id: UUID,
     limit: int = Query(50, ge=1, le=200),
-    cursor: UUID | None = None,
-    db: AsyncSession = Depends(session),
+    cursor: str | None = None,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     await require(db, Project, id)
-    return await page(db, TestCase, (TestCase.project_id == id,), limit, cursor)
+    return await page(
+        db,
+        TestCase,
+        (TestCase.project_id == id, TestCase.archived_at.is_(None)),
+        limit,
+        cursor,
+    )
 
 
 @router.get(
     "/test-cases/{id}", response_model=entity(TestCase), summary="Read a test case"
 )
-async def get(id: UUID, db: AsyncSession = Depends(session)):
-    return record(await require(db, TestCase, id))
+async def get(id: UUID, db: AsyncSession = Depends(session, scope="function")):
+    return record(await require_live(db, TestCase, id))
 
 
 @router.patch(
     "/test-cases/{id}", response_model=entity(TestCase), summary="Update a test case"
 )
-async def update(id: UUID, data: TestUpdate, db: AsyncSession = Depends(session)):
-    row = await require(db, TestCase, id)
+async def update(
+    id: UUID, data: TestUpdate, db: AsyncSession = Depends(session, scope="function")
+):
+    row = await require_live(db, TestCase, id)
     for key, value in data.model_dump(exclude_unset=True).items():
         if value is None:
             raise AppError("invalid_test", "Test fields cannot be null", 422)
+        if key == "input" and row.origin == "from_trace" and value != row.input:
+            raise AppError(
+                "trace_input_mismatch",
+                "Trace-derived tests preserve the original input",
+                422,
+            )
         setattr(row, key, value)
     await db.flush()
     return record(row)
@@ -99,12 +114,12 @@ async def update(id: UUID, data: TestUpdate, db: AsyncSession = Depends(session)
 @router.delete(
     "/test-cases/{id}",
     status_code=204,
-    summary="Delete a test case and its assertion results",
+    summary="Archive a test case and preserve its run history",
 )
-async def remove(id: UUID, db: AsyncSession = Depends(session)):
-    await require(db, TestCase, id)
-    await db.execute(delete(RunResult).where(RunResult.test_case_id == id))
-    await db.execute(delete(TestCase).where(TestCase.id == id))
+async def remove(id: UUID, db: AsyncSession = Depends(session, scope="function")):
+    row = await require_live(db, TestCase, id)
+    row.archived_at = datetime.now(UTC)
+    await db.flush()
     return Response(status_code=204)
 
 
@@ -118,7 +133,7 @@ async def from_trace(
     id: UUID,
     trace_id: UUID,
     data: TestUpdate | None = None,
-    db: AsyncSession = Depends(session),
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     await require(db, Project, id)
     trace = await source_trace(db, id, trace_id)
@@ -150,7 +165,10 @@ async def from_trace(
     summary="Forward seed generation to the evaluator",
 )
 async def seed(
-    id: UUID, data: SeedCreate, request: Request, db: AsyncSession = Depends(session)
+    id: UUID,
+    data: SeedCreate,
+    request: Request,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     await require(db, Project, id)
     result = await execute(
@@ -166,12 +184,16 @@ async def seed(
     response_model=Page,
     summary="Assign stable dev and holdout splits by test ID",
 )
-async def split(id: UUID, data: SplitCreate, db: AsyncSession = Depends(session)):
+async def split(
+    id: UUID, data: SplitCreate, db: AsyncSession = Depends(session, scope="function")
+):
     await require(db, Project, id)
     rows = list(
         (
             await db.scalars(
-                select(TestCase).where(TestCase.project_id == id).order_by(TestCase.id)
+                select(TestCase)
+                .where(TestCase.project_id == id, TestCase.archived_at.is_(None))
+                .order_by(TestCase.id)
             )
         ).all()
     )
@@ -192,9 +214,11 @@ async def split(id: UUID, data: SplitCreate, db: AsyncSession = Depends(session)
     summary="Add a deterministic or judge assertion",
 )
 async def create_assertion(
-    id: UUID, data: AssertionCreate, db: AsyncSession = Depends(session)
+    id: UUID,
+    data: AssertionCreate,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
-    await require(db, TestCase, id)
+    await require_live(db, TestCase, id)
     row = Assertion(test_case_id=id, **data.model_dump())
     db.add(row)
     await db.flush()
@@ -209,20 +233,28 @@ async def create_assertion(
 async def assertions(
     id: UUID,
     limit: int = Query(50, ge=1, le=200),
-    cursor: UUID | None = None,
-    db: AsyncSession = Depends(session),
+    cursor: str | None = None,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
-    await require(db, TestCase, id)
-    return await page(db, Assertion, (Assertion.test_case_id == id,), limit, cursor)
+    await require_live(db, TestCase, id)
+    return await page(
+        db,
+        Assertion,
+        (Assertion.test_case_id == id, Assertion.archived_at.is_(None)),
+        limit,
+        cursor,
+    )
 
 
 @router.patch(
     "/assertions/{id}", response_model=entity(Assertion), summary="Update an assertion"
 )
 async def update_assertion(
-    id: UUID, data: AssertionUpdate, db: AsyncSession = Depends(session)
+    id: UUID,
+    data: AssertionUpdate,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
-    row = await require(db, Assertion, id)
+    row = await require_live(db, Assertion, id)
     for key, value in data.model_dump(exclude_unset=True).items():
         if value is None:
             raise AppError("invalid_assertion", "Assertion fields cannot be null", 422)
@@ -234,10 +266,12 @@ async def update_assertion(
 @router.delete(
     "/assertions/{id}",
     status_code=204,
-    summary="Delete an assertion and its saved evidence",
+    summary="Archive an assertion and preserve its saved evidence",
 )
-async def remove_assertion(id: UUID, db: AsyncSession = Depends(session)):
-    await require(db, Assertion, id)
-    await db.execute(delete(AssertionResult).where(AssertionResult.assertion_id == id))
-    await db.execute(delete(Assertion).where(Assertion.id == id))
+async def remove_assertion(
+    id: UUID, db: AsyncSession = Depends(session, scope="function")
+):
+    row = await require_live(db, Assertion, id)
+    row.archived_at = datetime.now(UTC)
+    await db.flush()
     return Response(status_code=204)

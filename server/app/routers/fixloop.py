@@ -16,6 +16,7 @@ from app.schemas import (
     entity,
 )
 from app.services.evaluator import prepare, execute
+from app.services.results import summarize
 from app.routers.jobs import submit
 
 router = APIRouter(prefix="/v1", tags=["Fix loop"])
@@ -30,7 +31,7 @@ async def diagnose_result(
     id: UUID,
     data: DiagnoseRequest,
     request: Request,
-    db: AsyncSession = Depends(session),
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     return await execute(
         db,
@@ -55,7 +56,7 @@ async def diagnose_trace(
     id: UUID,
     data: DiagnoseRequest,
     request: Request,
-    db: AsyncSession = Depends(session),
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     return await execute(
         db,
@@ -70,8 +71,8 @@ async def diagnose_trace(
 async def diagnoses(
     trace_id: UUID | None = None,
     limit: int = Query(50, ge=1, le=200),
-    cursor: UUID | None = None,
-    db: AsyncSession = Depends(session),
+    cursor: str | None = None,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     return await page(
         db,
@@ -87,7 +88,7 @@ async def diagnoses(
     response_model=entity(Diagnosis),
     summary="Read diagnosis evidence",
 )
-async def diagnosis(id: UUID, db: AsyncSession = Depends(session)):
+async def diagnosis(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return record(await require(db, Diagnosis, id))
 
 
@@ -98,7 +99,10 @@ async def diagnosis(id: UUID, db: AsyncSession = Depends(session)):
     summary="Confirm a diagnosis by changing one variable",
 )
 async def replay(
-    id: UUID, data: ReplayCreate, request: Request, db: AsyncSession = Depends(session)
+    id: UUID,
+    data: ReplayCreate,
+    request: Request,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     return await execute(
         db,
@@ -112,7 +116,7 @@ async def replay(
 @router.get(
     "/replays/{id}", response_model=entity(Replay), summary="Read replay outcome"
 )
-async def get_replay(id: UUID, db: AsyncSession = Depends(session)):
+async def get_replay(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return record(await require(db, Replay, id))
 
 
@@ -123,7 +127,10 @@ async def get_replay(id: UUID, db: AsyncSession = Depends(session)):
     summary="Create a candidate version from a confirmed diagnosis",
 )
 async def repair(
-    id: UUID, data: RepairCreate, request: Request, db: AsyncSession = Depends(session)
+    id: UUID,
+    data: RepairCreate,
+    request: Request,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     return await execute(
         db,
@@ -139,7 +146,7 @@ async def repair(
     response_model=entity(Repair),
     summary="Read a repair and candidate version reference",
 )
-async def get_repair(id: UUID, db: AsyncSession = Depends(session)):
+async def get_repair(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return record(await require(db, Repair, id))
 
 
@@ -154,7 +161,7 @@ async def verify(
     data: Credentials,
     request: Request,
     background: BackgroundTasks,
-    db: AsyncSession = Depends(session),
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     prepared = await prepare(
         db, request.app.state, "verify", data, target_model=Repair, target_id=id
@@ -171,9 +178,7 @@ async def verify(
     response_model=dict,
     summary="Read the verification scorecard",
 )
-async def verification(id: UUID, db: AsyncSession = Depends(session)):
-    from app.services.results import summarize
-
+async def verification(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     row = await require(db, Verification, id)
     return {
         **record(row),
@@ -193,7 +198,7 @@ async def improve(
     data: RunCreate,
     request: Request,
     background: BackgroundTasks,
-    db: AsyncSession = Depends(session),
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     prepared = await prepare(db, request.app.state, "improve", data, project_id=id)
 

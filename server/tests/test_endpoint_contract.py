@@ -39,8 +39,9 @@ async def test_version_config_rejects_secret_fields_without_persistence(api):
     client, app = api
     created = await client.post("/v1/projects", json={"name": "Acme Support"})
     project = created.json()["id"]
-    for config in [
-        {"system_prompt": "Bearer REPLACE_ME"},
+    for config in [  # realistic-length secrets only
+        {"system_prompt": "Bearer sk-f09e8d7c6b5a4321abcd"},
+        {"system_prompt": "leaked sk-abcdefghij1234567890 here"},
         {"tools": [{"api_key": "REPLACE_ME"}]},
         {"agent": {"type": "openai_compatible", "api_key": "REPLACE_ME"}},
     ]:
@@ -132,3 +133,32 @@ async def test_project_delete_uses_lineage_when_version_timestamps_tie(api):
     assert (await client.get(f"/v1/projects/{untouched}")).status_code == 200
     async with app.state.sessions() as db:
         assert await db.scalar(select(func.count()).select_from(AppVersion)) == 0
+
+
+async def test_version_config_accepts_secret_lookalike_prose(api):
+    client, _ = api
+    project = (await client.post("/v1/projects", json={"name": "Acme Support"})).json()[
+        "id"
+    ]
+    response = await client.post(
+        f"/v1/projects/{project}/versions",
+        json={
+            "config": {
+                "system_prompt": "We use sk-learn. Bearer tokens must be rotated quarterly."
+            }
+        },
+    )
+    assert response.status_code == 201, response.text
+
+
+async def test_api_key_guard(api):
+    client, app = api
+    app.state.settings.testlab_api_key = "test-key-123"
+    denied = await client.get("/v1/projects")
+    assert denied.status_code == 401
+    assert denied.json()["error"]["code"] == "unauthorized"
+    wrong = await client.get("/v1/projects", headers={"X-Api-Key": "wrong"})
+    assert wrong.status_code == 401
+    assert (await client.get("/health")).status_code == 200
+    allowed = await client.get("/v1/projects", headers={"X-Api-Key": "test-key-123"})
+    assert allowed.status_code == 200, allowed.text

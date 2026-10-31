@@ -2,7 +2,8 @@ from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import inspect
+from sqlalchemy import inspect, update
+from sqlalchemy.exc import DBAPIError
 
 from app.errors import AppError
 from app.models import AppVersion, Base, Project
@@ -130,3 +131,25 @@ def test_version_config_rejects_credentials_and_unknown_fields():
         VersionCreate(
             config={"agent": {"type": "openai_compatible", "password": "REPLACE_ME"}}
         )
+
+
+@pytest.mark.asyncio
+async def test_core_update_rejected_by_trigger(api):
+    _, app = api
+    async with app.state.sessions() as db, db.begin():
+        project = Project(name="Acme Support")
+        db.add(project)
+        await db.flush()
+        version = AppVersion(
+            project_id=project.id, config={"system_prompt": "Original"}
+        )
+        db.add(version)
+        await db.flush()
+        version_id = version.id
+    async with app.state.sessions() as db:
+        with pytest.raises(DBAPIError, match="immutable_app_version"):
+            await db.execute(
+                update(AppVersion)
+                .where(AppVersion.id == version_id)
+                .values(config={"system_prompt": "Changed"})
+            )

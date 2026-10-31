@@ -1,6 +1,7 @@
 import json
 
 from app.errors import AppError, error_body
+from app.security import safe_http_client
 from app.services.evaluator import require_backend, context
 
 EVENTS = {
@@ -24,8 +25,9 @@ async def events(state, db, prepared):
         )
     text = ""
     size = 0
+    client = safe_http_client(state.settings)
     try:
-        async for item in function(payload, context(db, state, allowed)):
+        async for item in function(payload, context(db, state, allowed, None, client)):
             if hasattr(item, "model_dump"):
                 item = item.model_dump()
             if (
@@ -72,4 +74,6 @@ async def events(state, db, prepared):
             else error_body("chat_failed", "Chat operation failed")
         )
         yield {"event": "error", "data": json.dumps(state.redactor.scrub(body))}
+    finally:
+        await client.aclose()
     yield {"event": "done", "data": "{}"}

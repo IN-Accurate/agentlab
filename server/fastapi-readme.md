@@ -142,6 +142,7 @@ Registered keys, Bearer values and key query fields are redacted. User URLs must
 | CREDENTIAL_RATE_LIMIT |20 per peer IP per minute |
 | CHAT_RATE_LIMIT |30 per peer IP per minute |
 | TEST_DATABASE_URL | Tests only; disposable database name must contain test |
+| TESTLAB_API_KEY | Unset leaves /v1 open for local development; when set, every /v1 route requires a matching X-Api-Key header |
 
 No Redis, TESTLAB_FAKE_LLM, provider referer/title settings or model execution options are used by this API. Provider settings belong to the separately supplied evaluator. The server does not automatically read .env: use Uvicorn --env-file. Existing shell variables take precedence over dotenv loading. Clear an obsolete shell DATABASE_URL before switching to a .env connection.
 
@@ -163,6 +164,8 @@ python -m pytest server/tests -q
 ruff check server
 ruff format --check server
 ```
+
+CI (.github/workflows/ci.yml) runs these three commands on every push and pull request against a disposable Postgres service database, so results reproduce without a Neon account.
 
 Fixtures create an isolated schema, apply the unchanged SQL, and remove only that schema afterward. Do not point tests at a shared/main Neon database.
 
@@ -202,7 +205,7 @@ Application assembly calls create_app(evaluator=backend). The team's own entry m
 
 Payload fields are operation, project_id, version, test_cases (with assertions), target (with trace/spans/chunks), and options. Query/config/expectation strings are preserved except secret redaction. Run/improve/verify include selected test data. Verify includes baseline and candidate versions and diagnosis. The API does not interpret assertion specs or assign acceptance criteria.
 
-Context supplies session, credentials.metadata(id), credentials.decrypt_for_call(id), and report_progress(fraction). Credentials helpers are synchronous; report_progress is async when supplied for jobs. Flush records through session but do not commit, close, or replace it. The API commits successful jobs and rolls back failures. The evaluator is trusted server-side code, not an untrusted sandbox.
+Context supplies session, session_factory(), credentials.metadata(id), credentials.decrypt_for_call(id), http_client, and report_progress(fraction). Credentials helpers are synchronous; report_progress is async when supplied for jobs. Flush records through session but do not commit, close, or replace it. The API commits successful jobs and rolls back failures. Evaluators should commit per result or per batch through short sessions from session_factory() so dashboards update before the job ends; references returned from those sessions are validated by the API afterwards. http_client is a pre-built httpx client that re-validates each destination IP at call time; it is closed when the operation finishes. The evaluator is trusted server-side code, not an untrusted sandbox.
 
 | Operation | Required returned references |
 | --- | --- |
@@ -230,7 +233,7 @@ OpenRouter credential example is provider=openrouter, model=REPLACE_ME, api_key=
 | Dashboard | dashboard and dashboard/series |
 | Chat | projects/{id}/chat |
 
-Errors are {error:{code,message,details}}. Lists are {items,next_cursor}; send limit/cursor. Job statuses are queued/running/completed/failed; polling results carry evaluator IDs. Job SSE emits progress and terminal done.
+Errors are {error:{code,message,details}}. Lists are {items,next_cursor}; send limit/cursor. Cursors are opaque chronological (created_at, id) markers. Deleting a test case or assertion archives it: reads and future runs exclude it, but past run results and scorecards are preserved. Job statuses are queued/running/completed/failed; polling results carry evaluator IDs. Job SSE emits progress and terminal done.
 
 Chat names are fixed: message.delta {text}, step.started/step.finished step metadata, tool.result {type,data}, error {error:{code,message,details}}, done {}. Card types: run_summary, diagnosis, replay, repair, scorecard. Client sends history; there are no chat tables. API forwards these events, never classifies intent. Adjacent text deltas are buffered until a non-text event or completion to redact keys split across chunks.
 
@@ -245,7 +248,7 @@ Keep contract changes additive. OpenAPI includes 56 operations. No PATCH/PUT ver
 
 ## 15. Limits and next steps
 
-No authentication, durable queue, distributed store, Redis, RSA, CI gates or model fingerprinting. Use a single worker; credentials and jobs are lost on restart. TTL cleanup is lazy on lookup. SSE output buffers adjacent text for redaction. Production load, shared-store operation and real AI integration have not been tested. URL safety here does not replace the evaluator's outbound transport protections. No automatic repair deployment occurs.
+No user accounts (set TESTLAB_API_KEY to require a shared X-Api-Key header on /v1 routes), durable queue, distributed store, Redis, RSA or model fingerprinting. Behind a TLS-terminating proxy, run uvicorn with --proxy-headers --forwarded-allow-ips so the HTTPS check and per-IP rate limits see the real client; without them every credential POST returns 400 and the rate limit turns global. Use a single worker; credentials and jobs are lost on restart. TTL cleanup is lazy on lookup. SSE output buffers adjacent text for redaction. Production load, shared-store operation and real AI integration have not been tested. URL safety here does not replace the evaluator's outbound transport protections. No automatic repair deployment occurs.
 
 ## 16. Team questions
 
@@ -253,12 +256,12 @@ Why rules before judges? That is an evaluator policy for cheap, explainable chec
 
 ## 17. Ten-minute walkthrough
 
-1. Minute 0Ã¢â‚¬â€œ1: distinguish API-owned validation/transport from evaluator-owned AI decisions.
-2. Minute 1Ã¢â‚¬â€œ2: start server; inspect /health, /v 1/meta and /docs.
-3. Minute 2Ã¢â‚¬â€œ4: create project/version/test/assertion; show matching Neon row IDs.
-4. Minute 4Ã¢â‚¬â€œ5: ingest a canned trace twice; show one span tree.
-5. Minute 5Ã¢â‚¬â€œ6: create/revoke a dummy credential; explain TTL and redaction.
-6. Minute 6Ã¢â‚¬â€œ7: call run without evaluator and show explicit 503.
-7. Minute 7Ã¢â‚¬â€œ8: walk payload/context integration and transaction ownership.
-8. Minute 8Ã¢â‚¬â€œ9: explain job polling/SSE and stored dashboard verdicts.
-9. Minute 9Ã¢â‚¬â€œ10: list remaining AI integration and frontend end-to-end checks.
+1. Minute 0–1: distinguish API-owned validation/transport from evaluator-owned AI decisions.
+2. Minute 1–2: start server; inspect /health, /v 1/meta and /docs.
+3. Minute 2–4: create project/version/test/assertion; show matching Neon row IDs.
+4. Minute 4–5: ingest a canned trace twice; show one span tree.
+5. Minute 5–6: create/revoke a dummy credential; explain TTL and redaction.
+6. Minute 6–7: call run without evaluator and show explicit 503.
+7. Minute 7–8: walk payload/context integration and transaction ownership.
+8. Minute 8–9: explain job polling/SSE and stored dashboard verdicts.
+9. Minute 9–10: list remaining AI integration and frontend end-to-end checks.

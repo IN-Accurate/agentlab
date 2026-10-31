@@ -1,8 +1,10 @@
+import asyncio
 import logging
 import socket
 from types import SimpleNamespace
 
 import pytest
+import httpx
 from cryptography.fernet import Fernet
 from uvicorn.logging import AccessFormatter, DefaultFormatter
 
@@ -11,11 +13,17 @@ from app.config import Settings
 from app.security import (
     RedactionFilter,
     Redactor,
+    SafeTransport,
     create_credential,
     credential_metadata,
     decrypt_credential,
+    revoke_credential,
+    safe_http_client,
+    rate_limit,
+    RATE_LIMIT_MAX_KEYS,
     validate_url,
 )
+from app.schemas import reject_secrets
 from app.store import CredentialStore, JobStore
 
 
@@ -107,8 +115,6 @@ async def test_url_rejects_private_mixed_dns(monkeypatch):
             (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 443)),
         ]
 
-    import asyncio
-
     monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
     with pytest.raises(AppError, match="restricted"):
         await validate_url("https://example.com/v1")
@@ -126,8 +132,6 @@ async def test_url_public_and_local_opt_in(monkeypatch):
                 ("127.0.0.1" if host == "localhost" else "8.8.8.8", 443),
             )
         ]
-
-    import asyncio
 
     monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
     assert await validate_url("https://example.com/v1") == ["8.8.8.8"]
@@ -181,3 +185,150 @@ def test_access_log_scrubs_unregistered_query_credentials(field):
     assert "[REDACTED]" in text
     assert "limit=10" in text
     assert "400 Bad Request" in text
+
+
+def test_redactor_preserves_secret_lookalikes():
+    redactor = Redactor()
+    assert redactor.text("We use sk-learn for models.") == "We use sk-learn for models."
+    assert (
+        redactor.text("Bearer tokens must be rotated.")
+        == "Bearer tokens must be rotated."
+    )
+    assert redactor.text("key sk-abcdefghij1234567890 end") == "key [REDACTED] end"
+    assert (
+        redactor.text("auth Bearer abcdefghij1234567890!") == "auth Bearer [REDACTED]!"
+    )
+
+
+@pytest.mark.parametrize(
+    "value", ["sk-learn", "Bearer tokens must be rotated", "the Bearer of news"]
+)
+def test_reject_secrets_ignores_lookalikes(value):
+    reject_secrets(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "sk-abcdefghij1234567890",
+        "Bearer abcdefghij1234567890",
+        {"nested": ["sk-abcdefghij1234567890"]},
+    ],
+)
+def test_reject_secrets_blocks_realistic_lengths(value):
+    with pytest.raises(ValueError, match="credential endpoint"):
+        reject_secrets(value)
+
+
+def test_settings_rejects_malformed_encryption_key():
+    with pytest.raises(ValueError, match="Fernet key"):
+        Settings(_env_file=None, app_encryption_key="not-a-valid-key")
+
+
+def test_revoked_and_expired_credentials_release_fingerprints(monkeypatch):
+    settings = SimpleNamespace(app_encryption_key=Fernet.generate_key())
+    redactor = Redactor()
+    store = CredentialStore(on_evict=redactor.discard)
+    monkeypatch.setattr("app.store.monotonic", lambda: 10)
+    first = create_credential(
+        {
+            "provider": "custom",
+            "model": "m",
+            "api_key": "first-secret-value",
+            "ttl_seconds": 60,
+        },
+        settings,
+        store,
+        redactor,
+    )["credential_id"]
+    assert redactor.text("leaked first-secret-value") == "leaked [REDACTED]"
+    revoke_credential(first, store)
+    assert redactor.text("leaked first-secret-value") == "leaked first-secret-value"
+    live = create_credential(
+        {
+            "provider": "custom",
+            "model": "m",
+            "api_key": "shared-secret-value",
+            "ttl_seconds": 60,
+        },
+        settings,
+        store,
+        redactor,
+    )["credential_id"]
+    duplicate = create_credential(
+        {
+            "provider": "custom",
+            "model": "m",
+            "api_key": "shared-secret-value",
+            "ttl_seconds": 60,
+        },
+        settings,
+        store,
+        redactor,
+    )["credential_id"]
+    revoke_credential(live, store)
+    assert redactor.text("shared-secret-value here") == "[REDACTED] here"
+    revoke_credential(duplicate, store)
+    assert redactor.text("shared-secret-value here") == "shared-secret-value here"
+    short = create_credential(
+        {
+            "provider": "custom",
+            "model": "m",
+            "api_key": "expiring-secret-1",
+            "ttl_seconds": 60,
+        },
+        settings,
+        store,
+        redactor,
+    )["credential_id"]
+    monkeypatch.setattr("app.store.monotonic", lambda: 1000)
+    assert store.get(short) is None
+    assert redactor.text("expiring-secret-1") == "expiring-secret-1"
+
+
+@pytest.mark.asyncio
+async def test_safe_transport_validates_destination_at_call_time(monkeypatch):
+    class RecordingTransport(httpx.AsyncBaseTransport):
+        def __init__(self):
+            self.requests = []
+
+        async def handle_async_request(self, request):
+            self.requests.append(request)
+            return httpx.Response(200, json={"ok": True})
+
+    async def private(*args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 443))]
+
+    async def public(*args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
+
+    settings = SimpleNamespace(testlab_allow_insecure_local=False)
+    inner = RecordingTransport()
+    client = httpx.AsyncClient(transport=SafeTransport(settings, inner=inner))
+    monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", private)
+    with pytest.raises(AppError, match="restricted"):
+        await client.get("https://example.com/v1")
+    assert inner.requests == []
+    monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", public)
+    assert (await client.get("https://example.com/v1?api-version=1")).status_code == 200
+    assert len(inner.requests) == 1
+    with pytest.raises(AppError, match="HTTPS"):
+        await client.get("http://example.com/v1")
+    with pytest.raises(AppError, match="credentials"):
+        await client.get("https://user@example.com/v1")
+    await client.aclose()
+    built = safe_http_client(settings)
+    assert isinstance(built, httpx.AsyncClient)
+    assert (built.timeout.connect, built.timeout.read) == (10.0, 300.0)
+    await built.aclose()
+
+
+def test_rate_limit_table_is_bounded():
+    buckets = {(f"10.0.0.{i}", "credentials"): [0.0] for i in range(10005)}
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(rate_limits=buckets)),
+        client=SimpleNamespace(host="10.9.9.9"),
+        url=SimpleNamespace(path="/v1/credentials"),
+    )
+    rate_limit(request, 20)
+    assert len(buckets) <= RATE_LIMIT_MAX_KEYS

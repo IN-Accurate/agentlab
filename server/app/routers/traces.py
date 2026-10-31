@@ -99,8 +99,9 @@ async def ingest(db, data, redactor):
                 **span.model_dump(exclude={"parent_sdk_span_id", "chunks", "payload"}),
                 payload=redactor.scrub(span.payload),
             )
+            # Span IDs are pre-assigned uuid4s, so one flush after the loop
+            # persists spans and chunks together instead of rescanning per span.
             db.add(row)
-            await db.flush()
             for chunk in span.chunks:
                 db.add(
                     RetrievedChunk(span_id=row.id, **redactor.scrub(chunk.model_dump()))
@@ -118,7 +119,9 @@ async def ingest(db, data, redactor):
     summary="Idempotently ingest a trace and span tree",
 )
 async def create(
-    data: TraceCreate, request: Request, db: AsyncSession = Depends(session)
+    data: TraceCreate,
+    request: Request,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     return await ingest(db, data, request.app.state.redactor)
 
@@ -128,8 +131,8 @@ async def listing(
     version_id: UUID | None = None,
     status: str | None = None,
     limit: int = Query(50, ge=1, le=200),
-    cursor: UUID | None = None,
-    db: AsyncSession = Depends(session),
+    cursor: str | None = None,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     filters = []
     if version_id:
@@ -144,12 +147,12 @@ async def listing(
     response_model=TraceDetail,
     summary="Read trace, span tree and retrieved chunks",
 )
-async def get(id: UUID, db: AsyncSession = Depends(session)):
+async def get(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return await details(db, id)
 
 
 @router.get("/{id}/spans", response_model=Page, summary="Read trace spans and chunks")
-async def spans(id: UUID, db: AsyncSession = Depends(session)):
+async def spans(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return {"items": (await details(db, id))["spans"], "next_cursor": None}
 
 
@@ -158,5 +161,5 @@ async def spans(id: UUID, db: AsyncSession = Depends(session)):
     response_model=Page,
     summary="Read a flat ordered trace timeline with latency",
 )
-async def timeline(id: UUID, db: AsyncSession = Depends(session)):
+async def timeline(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return {"items": (await details(db, id))["spans"], "next_cursor": None}

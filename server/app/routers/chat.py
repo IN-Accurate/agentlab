@@ -20,7 +20,11 @@ router = APIRouter(prefix="/v1/projects", tags=["Chat"])
     summary="Stream evaluator chat events and result cards",
 )
 async def chat(
-    id: UUID, data: ChatCreate, request: Request, db: AsyncSession = Depends(session)
+    id: UUID,
+    data: ChatCreate,
+    request: Request,
+    # Chat streams while the response is open, so its session must stay request-scoped.
+    db: AsyncSession = Depends(session, scope="request"),
 ):
     backend = require_backend(request.app.state)
     if not callable(getattr(backend, "stream_chat", None)):

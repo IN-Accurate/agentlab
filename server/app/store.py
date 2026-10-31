@@ -3,9 +3,10 @@ from time import monotonic
 
 
 class CredentialStore:
-    def __init__(self):
+    def __init__(self, on_evict=None):
         # Multiple workers need a shared store in a later deployment.
         self._items = {}
+        self._on_evict = on_evict
 
     def put(self, key, value, ttl=7200):
         self._items[str(key)] = (monotonic() + ttl, deepcopy(value))
@@ -21,7 +22,9 @@ class CredentialStore:
         return deepcopy(value)
 
     def delete(self, key):
-        self._items.pop(str(key), None)
+        value = self._items.pop(str(key), None)
+        if value is not None and self._on_evict is not None:
+            self._on_evict(value[1])
 
 
 class JobStore(CredentialStore):

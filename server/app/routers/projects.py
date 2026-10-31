@@ -6,9 +6,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import session, require, page, record
 from app.errors import AppError
-from app.models import Project, AppVersion
+from app.models import (
+    Project,
+    AppVersion,
+    Trace,
+    Run,
+    TestCase,
+    RunResult,
+    Verification,
+    Diagnosis,
+    Repair,
+)
 from app.schemas import ProjectCreate, VersionCreate, Page, ConnectionCreate, entity
 from app.security import validate_url
+from app.services.evaluator import execute, prepare
 
 router = APIRouter(prefix="/v1", tags=["Projects and versions"])
 
@@ -20,7 +31,9 @@ router = APIRouter(prefix="/v1", tags=["Projects and versions"])
     summary="Create a project",
 )
 async def create(
-    data: ProjectCreate, request: Request, db: AsyncSession = Depends(session)
+    data: ProjectCreate,
+    request: Request,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     row = Project(name=request.app.state.redactor.text(data.name))
     db.add(row)
@@ -31,14 +44,14 @@ async def create(
 @router.get("/projects", response_model=Page, summary="List projects")
 async def listing(
     limit: int = Query(50, ge=1, le=200),
-    cursor: UUID | None = None,
-    db: AsyncSession = Depends(session),
+    cursor: str | None = None,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     return await page(db, Project, limit=limit, cursor=cursor)
 
 
 @router.get("/projects/{id}", response_model=entity(Project), summary="Read a project")
-async def get(id: UUID, db: AsyncSession = Depends(session)):
+async def get(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return record(await require(db, Project, id))
 
 
@@ -46,7 +59,10 @@ async def get(id: UUID, db: AsyncSession = Depends(session)):
     "/projects/{id}", response_model=entity(Project), summary="Rename a project"
 )
 async def rename(
-    id: UUID, data: ProjectCreate, request: Request, db: AsyncSession = Depends(session)
+    id: UUID,
+    data: ProjectCreate,
+    request: Request,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     row = await require(db, Project, id)
     row.name = request.app.state.redactor.text(data.name)
@@ -57,17 +73,7 @@ async def rename(
 @router.delete(
     "/projects/{id}", status_code=204, summary="Delete a project and dependent records"
 )
-async def remove(id: UUID, db: AsyncSession = Depends(session)):
-    from app.models import (
-        Trace,
-        Run,
-        TestCase,
-        RunResult,
-        Verification,
-        Diagnosis,
-        Repair,
-    )
-
+async def remove(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     await require(db, Project, id)
     versions = select(AppVersion.id).where(AppVersion.project_id == id)
     traces = select(Trace.id).where(Trace.app_version_id.in_(versions))
@@ -104,7 +110,10 @@ async def remove(id: UUID, db: AsyncSession = Depends(session)):
     summary="Create the initial immutable version",
 )
 async def version(
-    id: UUID, data: VersionCreate, request: Request, db: AsyncSession = Depends(session)
+    id: UUID,
+    data: VersionCreate,
+    request: Request,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     await require(db, Project, id)
     await db.execute(select(Project).where(Project.id == id).with_for_update())
@@ -132,8 +141,8 @@ async def version(
 async def versions(
     id: UUID,
     limit: int = Query(50, ge=1, le=200),
-    cursor: UUID | None = None,
-    db: AsyncSession = Depends(session),
+    cursor: str | None = None,
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     await require(db, Project, id)
     return await page(db, AppVersion, (AppVersion.project_id == id,), limit, cursor)
@@ -144,14 +153,14 @@ async def versions(
     response_model=entity(AppVersion),
     summary="Read an immutable version",
 )
-async def read_version(id: UUID, db: AsyncSession = Depends(session)):
+async def read_version(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return record(await require(db, AppVersion, id))
 
 
 @router.get(
     "/versions/{id}/lineage", response_model=Page, summary="Read version ancestors"
 )
-async def lineage(id: UUID, db: AsyncSession = Depends(session)):
+async def lineage(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     row = await require(db, AppVersion, id)
     items = []
     while row:
@@ -169,7 +178,7 @@ async def lineage(id: UUID, db: AsyncSession = Depends(session)):
     response_model=dict,
     summary="Compare two version configurations",
 )
-async def diff(a: UUID, b: UUID, db: AsyncSession = Depends(session)):
+async def diff(a: UUID, b: UUID, db: AsyncSession = Depends(session, scope="function")):
     left, right = await require(db, AppVersion, a), await require(db, AppVersion, b)
     if left.project_id != right.project_id:
         raise AppError("project_mismatch", "Versions belong to different projects", 422)
@@ -190,10 +199,8 @@ async def test_connection(
     id: UUID,
     data: ConnectionCreate,
     request: Request,
-    db: AsyncSession = Depends(session),
+    db: AsyncSession = Depends(session, scope="function"),
 ):
-    from app.services.evaluator import prepare, execute
-
     await require(db, Project, id)
     if data.agent.type != "openai_compatible":
         raise AppError(

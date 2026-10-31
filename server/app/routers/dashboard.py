@@ -14,7 +14,7 @@ router = APIRouter(prefix="/v1/projects", tags=["Dashboard"])
     response_model=dict,
     summary="Format stored version scores and repair verdicts",
 )
-async def get(id: UUID, db: AsyncSession = Depends(session)):
+async def get(id: UUID, db: AsyncSession = Depends(session, scope="function")):
     return await dashboard.dashboard(db, id)
 
 
@@ -28,6 +28,6 @@ async def series(
     metric: str = Query(
         "pass_rate", pattern="^(pass_rate|regressions|latency_p50|failures_by_rule)$"
     ),
-    db: AsyncSession = Depends(session),
+    db: AsyncSession = Depends(session, scope="function"),
 ):
     return await dashboard.series(db, id, metric)

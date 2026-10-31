@@ -109,6 +109,7 @@ class TestCase(Record, Base):
     expected: Mapped[dict] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         CheckConstraint("origin IN ('seed', 'user', 'from_trace')"),
         CheckConstraint("split IN ('dev', 'holdout')"),
@@ -126,6 +127,7 @@ class Assertion(Record, Base):
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )
     position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         CheckConstraint("kind IN ('deterministic', 'judge')"),
         Index("idx_assertions_test_case", "test_case_id"),

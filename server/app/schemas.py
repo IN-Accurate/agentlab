@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 from typing import Any, Literal
@@ -32,7 +33,13 @@ def reject_secrets(value):
     elif isinstance(value, list):
         for item in value:
             reject_secrets(item)
-    elif isinstance(value, str) and re.search(r"\bsk-|\bBearer\s+", value, re.I):
+    elif isinstance(value, str) and re.search(
+        # Realistic lengths only (sk- 20+, Bearer 8+): "sk-learn" and
+        # "Bearer tokens must ..." are ordinary prose, not credentials.
+        r"\bsk-[A-Za-z0-9_-]{20,}|\bBearer\s+[A-Za-z0-9\-._~+/=]{8,}",
+        value,
+        re.I,
+    ):
         raise ValueError("Secrets belong only in the credential endpoint")
 
 
@@ -126,6 +133,12 @@ class SpanCreate(RequestModel):
     status: Literal["ok", "error"] = "ok"
     payload: dict[str, Any] = Field(default_factory=dict)
     chunks: list[ChunkCreate] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def bounded_payload(self):
+        if len(json.dumps(self.payload, default=str)) > 65536:
+            raise ValueError("Span payload exceeds 64KB")
+        return self
 
 
 class TraceCreate(RequestModel):
@@ -234,7 +247,7 @@ class JobResponse(BaseModel):
 
 class Page(BaseModel):
     items: list[dict[str, Any]]
-    next_cursor: UUID | None = None
+    next_cursor: str | None = None
 
 
 class HealthResponse(BaseModel):

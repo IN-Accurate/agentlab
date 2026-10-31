@@ -2,7 +2,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
 
-from app.models import AssertionResult, Run, RunResult
+from app.models import Assertion, AssertionResult, Run, RunResult, TestCase
 
 
 async def project_version(client):
@@ -17,7 +17,7 @@ async def project_version(client):
     return project_id, version.json()["id"]
 
 
-async def test_case_assertion_crud_removes_dependent_evidence(api):
+async def test_case_assertion_crud_archives_without_rewriting_history(api):
     client, app = api
     project, version = await project_version(client)
     created = await client.post(
@@ -65,12 +65,25 @@ async def test_case_assertion_crud_removes_dependent_evidence(api):
         )
     assert (await client.delete(f"/v1/assertions/{assertion_id}")).status_code == 204
     async with app.state.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(AssertionResult)) == 0
+        assert await db.scalar(select(func.count()).select_from(AssertionResult)) == 1
         assert await db.scalar(select(func.count()).select_from(RunResult)) == 1
+        archived = await db.get(Assertion, UUID(assertion_id))
+        assert archived.archived_at is not None
+    assert (await client.get(f"/v1/test-cases/{case_id}/assertions")).json()[
+        "items"
+    ] == []
+    assert (
+        await client.patch(f"/v1/assertions/{assertion_id}", json={"position": 5})
+    ).status_code == 404
     assert (await client.delete(f"/v1/test-cases/{case_id}")).status_code == 204
     assert (await client.get(f"/v1/test-cases/{case_id}")).status_code == 404
+    assert (await client.get(f"/v1/projects/{project}/test-cases")).json()[
+        "items"
+    ] == []
     async with app.state.sessions() as db:
-        assert await db.scalar(select(func.count()).select_from(RunResult)) == 0
+        assert await db.scalar(select(func.count()).select_from(RunResult)) == 1
+        archived = await db.get(TestCase, UUID(case_id))
+        assert archived.archived_at is not None
 
 
 async def test_from_trace_preserves_input_and_rejects_cross_project_source(api):
@@ -114,6 +127,42 @@ async def test_from_trace_preserves_input_and_rejects_cross_project_source(api):
             json={"input": "A query", "source_trace_id": trace_id},
         )
     ).status_code == 422
+
+
+async def test_from_trace_input_cannot_be_updated(api):
+    client, _ = api
+    project, version = await project_version(client)
+    trace_id = str(uuid4())
+    trace = await client.post(
+        "/v1/traces",
+        json={
+            "id": trace_id,
+            "app_version_id": version,
+            "input": "Exact original query",
+            "output": "Recorded answer",
+            "spans": [],
+        },
+    )
+    assert trace.status_code == 201, trace.text
+    case_id = (
+        await client.post(
+            f"/v1/projects/{project}/test-cases/from-trace/{trace_id}", json={}
+        )
+    ).json()["id"]
+    forbidden = await client.patch(
+        f"/v1/test-cases/{case_id}", json={"input": "Changed query"}
+    )
+    assert forbidden.status_code == 422, forbidden.text
+    assert forbidden.json()["error"]["code"] == "trace_input_mismatch"
+    assert (
+        await client.patch(
+            f"/v1/test-cases/{case_id}",
+            json={"expected": {"reference": "policy"}},
+        )
+    ).status_code == 200
+    assert (await client.get(f"/v1/test-cases/{case_id}")).json()[
+        "input"
+    ] == "Exact original query"
 
 
 async def test_stable_split(api):

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.config import Settings
 from app.db import connect
 from app.models import Project, AppVersion, TestCase, Assertion, Trace
+from app.routers.projects import remove
 
 NAME = "Demo - Refund Bot"
 
@@ -19,8 +20,6 @@ NAME = "Demo - Refund Bot"
 async def seed(db, reset=False):
     projects = list(await db.scalars(select(Project).where(Project.name == NAME)))
     if reset:
-        from app.routers.projects import remove
-
         for project in projects:
             await remove(project.id, db=db)
     elif projects:

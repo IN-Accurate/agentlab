@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Request
@@ -9,6 +10,7 @@ from app.errors import AppError, error_body
 from app.schemas import JobResponse
 
 router = APIRouter(prefix="/v1/jobs", tags=["Jobs"])
+logger = logging.getLogger(__name__)
 
 
 def get_job(state, identifier):
@@ -54,6 +56,7 @@ async def submit(state, background, operation):
                 ),
             )
         except Exception:
+            logger.exception("job failed")
             state.job_store.update(
                 identifier,
                 status="failed",
@@ -78,7 +81,14 @@ async def events(id: UUID, request: Request):
     async def generate():
         previous = None
         while True:
-            value = get_job(request.app.state, id)
+            try:
+                value = get_job(request.app.state, id)
+            except AppError as exc:
+                yield {
+                    "event": "error",
+                    "data": json.dumps(error_body(exc.code, exc.message, exc.details)),
+                }
+                return
             encoded = json.dumps(value, default=str)
             if encoded != previous:
                 yield {"event": "progress", "data": encoded}
