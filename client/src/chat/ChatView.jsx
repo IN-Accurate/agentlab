@@ -41,20 +41,24 @@ export default function ChatView({
   async function send(text, context, { kind = 'chat', cardId = null } = {}) {
     if (!conn || chat.streaming) return;
     setChatError('');
-    const userMsg = { id: nextId(), role: 'user', text, kind };
+    const userMsg = { id: nextId(), role: 'user', text, kind, cards: [] };
     const shell = { id: nextId(), role: 'assistant', text: '', cards: [] };
-    const patch = { messages: [...chat.messages, userMsg, shell], streaming: true };
-    if (kind === 'chat' && !chat.titleSet) {
-      patch.title = titleFor(text);
-      patch.titleSet = true;
-      if (conn.ownProject) {
-        api(`/v1/projects/${conn.projectId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ name: patch.title }),
-        }).catch(() => {});
+    let nextTitle = null;
+    onPatch(chat.id, (c) => {
+      const patch = { messages: [...c.messages, userMsg, shell], streaming: true };
+      if (kind === 'chat' && !c.titleSet) {
+        patch.title = titleFor(text);
+        patch.titleSet = true;
+        nextTitle = patch.title;
       }
+      return { ...c, ...patch };
+    });
+    if (nextTitle && conn.ownProject) {
+      api(`/v1/projects/${conn.projectId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: nextTitle }),
+      }).catch(() => {});
     }
-    onPatch(chat.id, (c) => ({ ...c, ...patch }));
 
     const bodyText = context ? `${text}\n\nAdditional context:\n${context}` : text;
     const history = [...chat.messages, userMsg]
@@ -107,8 +111,10 @@ export default function ChatView({
               }
             }
           } else if (event === 'error') {
-            acc.text += `\n\nError: ${data?.error?.message ?? data?.message ?? 'chat failed'}`;
+            const streamMessage = data?.error?.message ?? data?.message ?? 'chat failed';
+            acc.text += `\n\nError: ${streamMessage}`;
             paint();
+            setChatError(streamMessage);
           }
         },
         { signal: controller.signal },
@@ -125,6 +131,7 @@ export default function ChatView({
             m.id === shell.id ? { ...m, text: `${acc.text}\n\nError: ${message}`.trim() } : m,
           ),
         }));
+        setChatError(message);
       }
     } finally {
       aborter.current = null;

@@ -155,7 +155,20 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
           className="project-select"
           aria-label="Project"
           value={project.id}
-          onChange={(e) => patchDash({ projectId: e.target.value, runId: null, resultId: null, traceId: null, review: null })}
+          onChange={(e) =>
+            patchDash({
+              projectId: e.target.value,
+              runId: null,
+              resultId: null,
+              traceId: null,
+              review: null,
+              spanId: null,
+              runVersion: 'all',
+              traceVersion: 'all',
+              compareA: null,
+              compareB: null,
+            })
+          }
         >
           {projects.data.items.map((p) => (
             <option key={p.id} value={p.id}>
@@ -231,6 +244,7 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
           onClose={() => setDialog(false)}
           onDone={(runId) => {
             setDialog(false);
+            board.reload();
             patchDash({ tab: 'runs', runId, resultId: null, runsNonce: Date.now() });
           }}
         />

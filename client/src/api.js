@@ -9,13 +9,22 @@ export class ApiError extends Error {
   }
 }
 
+function safeParse(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 export async function api(path, options = {}) {
   const response = await fetch(`${base}${path}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', ...options.headers },
   });
   const text = await response.text();
-  const body = text ? JSON.parse(text) : null;
+  const body = safeParse(text);
   if (!response.ok) throw new ApiError(response.status, body);
   return body;
 }
@@ -29,7 +38,7 @@ export async function streamChat(projectId, body, onEvent, { signal } = {}) {
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new ApiError(response.status, text ? JSON.parse(text) : null);
+    throw new ApiError(response.status, safeParse(text));
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -38,6 +47,10 @@ export async function streamChat(projectId, body, onEvent, { signal } = {}) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replace(/\r\n/g, '\n');
+    // Hold a trailing CR: it may pair with an LF arriving in the next chunk.
+    if (buffer.endsWith('\r')) buffer = `${buffer.slice(0, -1).replace(/\r/g, '\n')}\r`;
+    else buffer = buffer.replace(/\r/g, '\n');
     let cut;
     while ((cut = buffer.indexOf('\n\n')) >= 0) {
       const frame = buffer.slice(0, cut);
@@ -48,7 +61,7 @@ export async function streamChat(projectId, body, onEvent, { signal } = {}) {
         if (line.startsWith('event:')) event = line.slice(6).trim();
         else if (line.startsWith('data:')) data += line.slice(5).trim();
       }
-      onEvent(event, data ? JSON.parse(data) : {});
+      onEvent(event, data ? (safeParse(data) ?? {}) : {});
       if (event === 'done') return;
     }
   }

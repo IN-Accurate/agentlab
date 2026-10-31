@@ -74,8 +74,17 @@ function TrendChart({ versions }) {
 }
 
 async function latestChange(projectId) {
-  const repairs = await api('/v1/repairs?limit=100');
-  const items = [...(repairs.items ?? [])].sort((a, b) =>
+  const all = [];
+  let cursor = null;
+  for (;;) {
+    const params = new URLSearchParams({ limit: '100' });
+    if (cursor) params.set('cursor', cursor);
+    const page = await api(`/v1/repairs?${params}`);
+    all.push(...(page.items ?? []));
+    cursor = page.next_cursor ?? null;
+    if (!cursor) break;
+  }
+  const items = [...all].sort((a, b) =>
     String(a.created_at) < String(b.created_at) ? 1 : -1,
   );
   for (const repair of items) {

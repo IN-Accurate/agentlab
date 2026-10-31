@@ -8,7 +8,16 @@ function loadChats() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw).map((c) => ({ ...c, streaming: false }));
+    return JSON.parse(raw).map((c) => ({
+      ...c,
+      streaming: false,
+      messages: (c.messages ?? []).map((m) => ({
+        ...m,
+        cards: (m.cards ?? []).map((card) =>
+          card.status === 'running' ? { ...card, status: 'ready' } : card,
+        ),
+      })),
+    }));
   } catch {
     return [];
   }
@@ -44,8 +53,7 @@ export default function App() {
   }, [chats]);
 
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
-  const lastConnection =
-    [...chats].reverse().find((c) => c.connection)?.connection ?? null;
+  const lastConnection = chats.find((c) => c.connection)?.connection ?? null;
   const chatCredentialId = lastConnection?.credentialId ?? null;
 
   const patchDash = useCallback((patch) => {

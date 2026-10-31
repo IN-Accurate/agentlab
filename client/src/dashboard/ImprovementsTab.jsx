@@ -35,9 +35,18 @@ function fmtLatency(ms) {
 }
 
 async function projectRepairs(projectId) {
-  const page = await api('/v1/repairs?limit=100');
+  const all = [];
+  let cursor = null;
+  for (;;) {
+    const params = new URLSearchParams({ limit: '100' });
+    if (cursor) params.set('cursor', cursor);
+    const page = await api(`/v1/repairs?${params}`);
+    all.push(...(page.items ?? []));
+    cursor = page.next_cursor ?? null;
+    if (!cursor) break;
+  }
   const out = [];
-  for (const repair of page.items ?? []) {
+  for (const repair of all) {
     try {
       const diagnosis = await api(`/v1/diagnoses/${repair.diagnosis_id}`);
       const trace = await api(`/v1/traces/${diagnosis.trace_id}`);
@@ -125,8 +134,9 @@ export default function ImprovementsTab({ projectId, labels, dash, patchDash, ch
       });
       const done = await pollJob(job.job_id, { interval: 1500, timeout: 600000 });
       if (done.status === 'failed') throw new Error(done.error?.error?.message ?? 'Verification failed.');
-      patchDash({ review: { ...dash.review, repairId: repair.id, verificationId: null } });
-      loaded.reload();
+      const next = { ...dash.review, repairId: repair.id, verificationId: null };
+      patchDash({ review: next });
+      if (JSON.stringify(next) === JSON.stringify(dash.review ?? null)) loaded.reload();
     } catch (e) {
       setActionError(e?.message ?? 'Could not verify this repair.');
     } finally {
