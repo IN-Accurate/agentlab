@@ -1,0 +1,59 @@
+name: CD
+
+# Publishes the API image after CI passes on main. Set the DEPLOY_HOOK_URL
+# secret to a host's deploy webhook to also trigger a release.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.SHA }}
+      # Older or rerun commits must not replace latest.
+      - name: Check main tip
+        id: tip
+        shell: bash
+        run: |
+          tip="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$tip" = "$SHA" ]; then current=true; else current=false; fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: steps.tip.outputs.current == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        if: steps.tip.outputs.current == 'true'
+        run: |
+          image="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')/api"
+          docker build -t "$image:$SHA" -t "$image:latest" server
+          docker push --all-tags "$image"
+      - name: Trigger deploy
+        if: steps.tip.outputs.current == 'true' && env.DEPLOY_HOOK_URL != ''
+        # curl --fail lets redirects through, so require a 2xx explicitly.
+        run: |
+          status="$(curl --silent --show-error --proto '=https' --max-time 30 --output /dev/null --write-out '%{http_code}' -X POST "$DEPLOY_HOOK_URL")"
+          case "$status" in
+            2??) ;;
+            *) echo "Deploy hook returned $status" >&2; exit 1 ;;
+          esac
