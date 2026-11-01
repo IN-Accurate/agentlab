@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, streamChat } from '../api.js';
-import ConnectForm from './ConnectForm.jsx';
 import Composer from './Composer.jsx';
 import TestCard from './TestCard.jsx';
 
@@ -15,9 +14,8 @@ function titleFor(text) {
 
 export default function ChatView({
   chat,
-  lastConnection,
   onPatch,
-  onConnect,
+  onOpenAgentManager,
   onOpenEvidence,
   onOpenReview,
 }) {
@@ -240,13 +238,11 @@ export default function ChatView({
       <div className="chat-body" ref={scrollRef}>
         {!conn ? (
           <div className="chat-narrow">
-            <h2 className="hero">Let&rsquo;s connect your agent</h2>
-            <p className="muted">Add your connection details to start testing.</p>
-            <ConnectForm
-              initialEndpoint={lastConnection?.endpoint ?? ''}
-              initialModel={lastConnection?.model ?? ''}
-              onConnect={(connection) => onConnect(chat.id, connection)}
-            />
+            <h2 className="hero">Connect an agent to get started</h2>
+            <p className="muted">Please connect an agent from the Agent Manager.</p>
+            <button type="button" className="btn-secondary" onClick={onOpenAgentManager}>
+              Open Agent Manager
+            </button>
           </div>
         ) : chat.messages.length === 0 ? (
           <div className="chat-narrow">
@@ -301,7 +297,11 @@ export default function ChatView({
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => onPatch(chat.id, (c) => ({ ...c, connection: null })) || setChatError('')}
+                onClick={() => {
+                  onPatch(chat.id, (c) => ({ ...c, connection: null }));
+                  setChatError('');
+                  onOpenAgentManager();
+                }}
               >
                 Reconnect
               </button>
@@ -312,7 +312,7 @@ export default function ChatView({
       <div className="chat-narrow composer-wrap">
         <Composer
           disabled={!conn || chat.streaming}
-          placeholder={conn ? 'Ask a follow-up…' : 'Connect your agent to begin'}
+          placeholder={conn ? 'Ask a follow-up…' : 'Connect an agent in Agent Manager to begin'}
           onSend={(text, context) => send(text, context)}
         />
       </div>
