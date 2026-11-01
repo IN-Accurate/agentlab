@@ -53,10 +53,6 @@ def terms(text):
 
 def retrieve(config, query):
     settings = config.get("retrieval") or {}
-    if settings.get("mode") == "bm25":
-        from evaluator.rag.bm25 import bm25_retrieve
-
-        return bm25_retrieve(config, query)
     filters = settings.get("filters") or {}
     wanted = terms(query)
     scored = []
@@ -187,13 +183,13 @@ def validate(config, output):
     return spans
 
 
-async def run_agent(model, config, query, params=None, retriever=None):
+async def run_agent(model, config, query, params=None):
     agent = config.get("agent") or {}
     result = AgentResult()
     chunks = []
     if agent.get("type", "hosted") == "hosted":
         started = monotonic()
-        chunks = await retriever(config, query) if retriever else retrieve(config, query)
+        chunks = retrieve(config, query)
         result.spans.append(
             span("retrieval", started, payload={"query": query}, chunks=chunks)
         )
