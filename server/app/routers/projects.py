@@ -129,7 +129,7 @@ async def version(
     agent = config.get("agent", {})
     if agent.get("base_url"):
         await validate_url(
-            agent["base_url"], request.app.state.settings.testlab_allow_insecure_local
+            agent["base_url"], request.app.state.settings.agentlab_allow_insecure_local
         )
     row = AppVersion(project_id=id, config=request.app.state.redactor.scrub(config))
     db.add(row)
@@ -208,7 +208,8 @@ async def test_connection(
         )
     if data.agent.base_url:
         await validate_url(
-            data.agent.base_url, request.app.state.settings.testlab_allow_insecure_local
+            data.agent.base_url,
+            request.app.state.settings.agentlab_allow_insecure_local,
         )
     return await execute(
         db,

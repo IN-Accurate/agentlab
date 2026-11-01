@@ -1,19 +1,22 @@
 import ssl
 
 from cryptography.fernet import Fernet
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
-    database_url: str = "postgresql+asyncpg://localhost/testlab"
+    database_url: str = "postgresql+asyncpg://localhost/agentlab"
     app_env: str = "development"
     app_encryption_key: str | None = None
     cors_origins: str = "http://localhost:3000"
-    testlab_allow_insecure_local: bool = False
-    testlab_api_key: str | None = None
+    agentlab_allow_insecure_local: bool = False
+    agentlab_api_key: str | None = None
+    meta_api_key: SecretStr | None = None
+    meta_base_url: str | None = None
+    meta_model: str | None = None
     credential_rate_limit: int = Field(20, ge=1)
     chat_rate_limit: int = Field(30, ge=1)
 
@@ -23,10 +26,10 @@ class Settings(BaseSettings):
             raise ValueError("Use explicit CORS origins")
         if self.app_env == "production" and not self.app_encryption_key:
             raise ValueError("APP_ENCRYPTION_KEY is required in production")
-        if self.app_env == "production" and self.testlab_allow_insecure_local:
+        if self.app_env == "production" and self.agentlab_allow_insecure_local:
             raise ValueError("Insecure localhost URLs are development-only")
-        if self.app_env == "production" and not self.testlab_api_key:
-            raise ValueError("TESTLAB_API_KEY is required in production")
+        if self.app_env == "production" and not self.agentlab_api_key:
+            raise ValueError("AGENTLAB_API_KEY is required in production")
         if self.app_encryption_key:
             try:
                 Fernet(self.app_encryption_key)

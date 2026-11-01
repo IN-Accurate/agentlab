@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, pollJob } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { Empty, ErrorBox, Field, Modal, Spinner } from '../ui.jsx';
+import HuggingFaceDialog from './HuggingFaceDialog.jsx';
 import OverviewTab from './OverviewTab.jsx';
 import RunsTab from './RunsTab.jsx';
 import TracesTab from './TracesTab.jsx';
@@ -14,10 +15,34 @@ const TABS = [
   ['improvements', 'Improvements'],
 ];
 
+const RUN_PRESETS = [
+  {
+    label: 'Quick check',
+    hint: 'Dev tests only, repeatable',
+    values: { split: 'dev', temperature: '0', maxTokens: '1024', seed: '42' },
+  },
+  {
+    label: 'Full check',
+    hint: 'All tests, repeatable',
+    values: { split: '', temperature: '0', maxTokens: '2048', seed: '42' },
+  },
+  {
+    label: 'Final check',
+    hint: 'Holdout tests, before release',
+    values: { split: 'holdout', temperature: '0', maxTokens: '2048', seed: '42' },
+  },
+  {
+    label: 'Real-world check',
+    hint: 'All tests, natural variation',
+    values: { split: '', temperature: '0.7', maxTokens: '2048', seed: '' },
+  },
+];
+
 function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
   const [versionId, setVersionId] = useState(versions[0]?.version_id ?? '');
   const [credential, setCredential] = useState(credentialId ?? '');
-  const [split, setSplit] = useState('');
+  const [values, setValues] = useState(RUN_PRESETS[1].values);
+  const { split, temperature, maxTokens, seed } = values;
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState('');
@@ -33,6 +58,11 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
     try {
       const body = { version_id: versionId, credential_id: credential };
       if (split) body.split = split;
+      const params = {};
+      if (temperature !== '') params.temperature = Number(temperature);
+      if (maxTokens !== '') params.max_tokens = Number(maxTokens);
+      if (seed !== '') params.seed = Number(seed);
+      body.params = params;
       const projectId = versions.find((v) => v.version_id === versionId)?.project_id;
       const job = await api(`/v1/projects/${projectId}/runs`, {
         method: 'POST',
@@ -55,9 +85,29 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
     }
   }
 
+  const setValue = (key) => (e) => setValues((v) => ({ ...v, [key]: e.target.value }));
+
   return (
     <Modal title="Run evaluation" onClose={onClose}>
       <form onSubmit={submit}>
+        <div className="eval-presets" role="group" aria-label="Suggested configurations">
+          {RUN_PRESETS.map((preset) => {
+            const selected = Object.entries(preset.values).every(([k, v]) => values[k] === v);
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                className={`eval-preset${selected ? ' selected' : ''}`}
+                aria-pressed={selected}
+                onClick={() => setValues(preset.values)}
+                disabled={pending}
+              >
+                <strong>{preset.label}</strong>
+                <span className="muted">{preset.hint}</span>
+              </button>
+            );
+          })}
+        </div>
         <Field label="Version">
           {(id) => (
             <select id={id} value={versionId} onChange={(e) => setVersionId(e.target.value)} disabled={pending}>
@@ -82,11 +132,52 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
         </Field>
         <Field label="Split">
           {(id) => (
-            <select id={id} value={split} onChange={(e) => setSplit(e.target.value)} disabled={pending}>
+            <select id={id} value={split} onChange={setValue('split')} disabled={pending}>
               <option value="">All tests</option>
               <option value="dev">Dev</option>
               <option value="holdout">Holdout</option>
             </select>
+          )}
+        </Field>
+        <Field label="Temperature">
+          {(id) => (
+            <input
+              id={id}
+              type="number"
+              min="0"
+              max="2"
+              step="0.1"
+              value={temperature}
+              onChange={setValue('temperature')}
+              disabled={pending}
+            />
+          )}
+        </Field>
+        <Field label="Max tokens">
+          {(id) => (
+            <input
+              id={id}
+              type="number"
+              min="1"
+              max="1000000"
+              step="1"
+              value={maxTokens}
+              onChange={setValue('maxTokens')}
+              disabled={pending}
+            />
+          )}
+        </Field>
+        <Field label="Seed">
+          {(id) => (
+            <input
+              id={id}
+              type="number"
+              step="1"
+              value={seed}
+              placeholder="Random"
+              onChange={setValue('seed')}
+              disabled={pending}
+            />
           )}
         </Field>
         {error ? (
@@ -114,6 +205,7 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
 
 export default function DashboardView({ dash, patchDash, chatCredentialId, onContinueInChat }) {
   const [dialog, setDialog] = useState(false);
+  const [importing, setImporting] = useState(false);
   const projects = useFetch('projects', () => api('/v1/projects?limit=100'));
 
   useEffect(() => {
@@ -177,9 +269,14 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
           ))}
         </select>
         {(dash.tab === 'overview' || dash.tab === 'runs') && (
-          <button type="button" className="btn-primary" onClick={() => setDialog(true)}>
-            Run evaluation
-          </button>
+          <div className="connect-actions">
+            <button type="button" className="btn-secondary" onClick={() => setImporting(true)}>
+              Import from Hugging Face
+            </button>
+            <button type="button" className="btn-primary" onClick={() => setDialog(true)}>
+              Run evaluation
+            </button>
+          </div>
         )}
       </header>
       <nav className="tabs" aria-label="Dashboard">
@@ -216,7 +313,10 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
           onOpenTrace={(traceId, verdict) =>
             patchDash({ tab: 'traces', traceId, traceVerdict: verdict ?? null })
           }
-          onOpenReview={(review) => patchDash({ tab: 'improvements', review })}
+          onOpenReview={(review) => {
+            board.reload();
+            patchDash({ tab: 'improvements', review });
+          }}
           onContinueInChat={onContinueInChat}
         />
       ) : dash.tab === 'traces' ? (
@@ -236,8 +336,12 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
           dash={dash}
           patchDash={patchDash}
           chatCredentialId={chatCredentialId}
+          onVerified={board.reload}
         />
       )}
+      {importing ? (
+        <HuggingFaceDialog projectId={project.id} onClose={() => setImporting(false)} />
+      ) : null}
       {dialog ? (
         <RunEvalDialog
           versions={versions}

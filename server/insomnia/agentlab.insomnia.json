@@ -1,13 +1,13 @@
 {
   "_type": "export",
   "__export_format": 4,
-  "__export_source": "testlab.api-bridge",
+  "__export_source": "agentlab.api-bridge",
   "resources": [
     {
       "_id": "wrk_06f34297edfc44d6a39c24438da86dd6",
       "_type": "workspace",
       "parentId": null,
-      "name": "TestLab API bridge - automatic IDs",
+      "name": "AgentLab API bridge - automatic IDs",
       "scope": "collection",
       "description": "API bridge only. AI POST requests require a team evaluator; default503. Cleanup DELETE requests last."
     },

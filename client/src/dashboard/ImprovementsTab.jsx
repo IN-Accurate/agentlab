@@ -96,7 +96,14 @@ async function finishChain(picked, verification, scorecard) {
   return { ...picked, verification, scorecard, candidate, baselineId, diff, lineage };
 }
 
-export default function ImprovementsTab({ projectId, labels, dash, patchDash, chatCredentialId }) {
+export default function ImprovementsTab({
+  projectId,
+  labels,
+  dash,
+  patchDash,
+  chatCredentialId,
+  onVerified,
+}) {
   const [verifying, setVerifying] = useState(false);
   const [actionError, setActionError] = useState('');
   const loaded = useFetch(`review-${projectId}-${JSON.stringify(dash.review ?? null)}`, () =>
@@ -132,6 +139,7 @@ export default function ImprovementsTab({ projectId, labels, dash, patchDash, ch
       });
       const done = await pollJob(job.job_id, { interval: 1500, timeout: 600000 });
       if (done.status === 'failed') throw new Error(done.error?.error?.message ?? 'Verification failed.');
+      onVerified();
       const next = { ...dash.review, repairId: repair.id, verificationId: null };
       patchDash({ review: next });
       if (JSON.stringify(next) === JSON.stringify(dash.review ?? null)) loaded.reload();

@@ -63,6 +63,12 @@ class CredentialResponse(BaseModel):
     expires_at: datetime
 
 
+class DefaultCredentialResponse(BaseModel):
+    available: bool
+    base_url: str | None = None
+    model: str | None = None
+
+
 class Credentials(RequestModel):
     credential_id: UUID
     judge_credential_id: UUID | None = None
@@ -176,6 +182,18 @@ class TestCreate(RequestModel):
     origin: Literal["seed", "user", "from_trace"] = "user"
     split: Literal["dev", "holdout"] = "dev"
     source_trace_id: UUID | None = None
+
+
+class HuggingFaceImport(RequestModel):
+    dataset: str = Field(min_length=1, max_length=200, pattern=r"^[\w.-]+(/[\w.-]+)?$")
+    config: str = Field(min_length=1, max_length=200)
+    split: str = Field(min_length=1, max_length=200)
+    input_column: str = Field(min_length=1, max_length=200)
+    expected_column: str = Field(min_length=1, max_length=200)
+    grading: Literal["meaning", "contains"] = "meaning"
+    test_split: Literal["dev", "holdout"] = "dev"
+    limit: int = Field(default=20, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)
 
 
 class TestUpdate(RequestModel):

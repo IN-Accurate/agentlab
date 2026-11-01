@@ -3,9 +3,11 @@ from uuid import UUID
 
 import httpx
 import pytest
+from sqlalchemy import select
 
 import evaluator.llm
-from app.models import Assertion, AssertionResult, Run, RunResult, TestCase
+from app.errors import AppError
+from app.models import Assertion, AssertionResult, Run, RunResult, TestCase, Trace
 from evaluator import Evaluator
 from evaluator.agent import (
     AgentResult,
@@ -19,7 +21,9 @@ from evaluator.agent import (
     validate,
 )
 from evaluator.diagnosis import Facts, classify, judge
+from evaluator.evaluate import prior_messages
 from evaluator.llm import ModelClient, ModelError
+from evaluator.repair import score
 
 CONFIG = {
     "system_prompt": "Answer from policy.",
@@ -246,10 +250,11 @@ async def test_judge_fallback_stores_suggestion_and_survives_bad_replies():
 
 
 async def setup(client_, app, monkeypatch, handler):
-    monkeypatch.setattr(
-        "app.services.evaluator.safe_http_client",
-        lambda settings: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-    )
+    for module in ("evaluator", "chat"):
+        monkeypatch.setattr(
+            f"app.services.{module}.safe_http_client",
+            lambda settings: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
     app.state.evaluator = Evaluator()
     p = (await client_.post("/v1/projects", json={"name": "Acme"})).json()["id"]
     v = (
@@ -384,16 +389,10 @@ async def test_test_connection_reports_success_and_failure(api, monkeypatch):
 
 async def test_unimplemented_operations_stay_explicit(api, monkeypatch):
     http, app = api
-    p, v, c = await setup(http, app, monkeypatch, lambda r: completion())
-    await http.post(f"/v1/projects/{p}/test-cases", json={"input": "q"})
-    job = (
-        await http.post(
-            f"/v1/projects/{p}/runs", json={"version_id": v, "credential_id": c}
-        )
-    ).json()
-    result = (await http.get(f"/v1/jobs/{job['job_id']}")).json()
-    assert result["status"] == "failed"
-    assert result["error"]["error"]["code"] == "evaluator_operation_unavailable"
+    await setup(http, app, monkeypatch, lambda r: completion())
+    with pytest.raises(AppError) as caught:
+        await app.state.evaluator.execute({"operation": "improve"}, {})
+    assert caught.value.code == "evaluator_operation_unavailable"
 
 
 def tool_call(arguments, parameters=None):
@@ -444,3 +443,290 @@ def test_unevaluable_validators_do_not_become_failures(spec):
     assert item["status"] == "ok" and item["payload"]["passed"] is None
     facts = Facts({"spans": [{"id": "v", **item}], "output": "{}"})
     assert classify(facts) is None
+
+
+async def run_job(http, p, v, c, **extra):
+    body = {"version_id": v, "credential_id": c, **extra}
+    job = (await http.post(f"/v1/projects/{p}/runs", json=body)).json()
+    return (await http.get(f"/v1/jobs/{job['job_id']}")).json()
+
+
+async def test_run_grades_cases_and_saves_each_result(api, monkeypatch):
+    http, app = api
+
+    def handler(request):
+        body = json.loads(request.content)
+        if "grade" in body["messages"][0]["content"]:
+            passed = "polite" in body["messages"][1]["content"]
+            return completion(json.dumps({"passed": passed, "rationale": "why"}))
+        return completion("Refunds within 30 days.")
+
+    p, v, c = await setup(http, app, monkeypatch, handler)
+    cases = [
+        {"input": "good", "expected": {"reference": "30 days"}},
+        {"input": "bad", "expected": {"reference": "60 days"}},
+        {"input": "kind", "expected": {"behavior": "be polite"}},
+        {"input": "rude", "expected": {"behavior": "be rude"}},
+    ]
+    ids = []
+    for case in cases:
+        response = await http.post(f"/v1/projects/{p}/test-cases", json=case)
+        ids.append(response.json()["id"])
+    await http.post(
+        f"/v1/test-cases/{ids[0]}/assertions",
+        json={"kind": "deterministic", "spec": {"type": "contains", "value": "nope"}},
+    )
+    job = await run_job(http, p, v, c, params={"temperature": 0, "max_tokens": 64})
+    assert job["status"] == "completed", job
+    assert (job["result"]["evaluated_cases"], job["result"]["passed"]) == (4, 1)
+    run_id = job["result"]["run_id"]
+    summary = (await http.get(f"/v1/runs/{run_id}/summary")).json()
+    assert (summary["total"], summary["passed"]) == (4, 1)
+    passed = {r["test_case_id"]: r["passed"] for r in summary["results"]}
+    assert passed == dict(zip(ids, [False, False, True, False]))
+    assert all(r["trace_id"] for r in summary["results"])
+    run = (await http.get(f"/v1/runs/{run_id}")).json()
+    assert run["params"]["max_tokens"] == 64
+    async with app.state.sessions() as db:
+        evidence = list(await db.scalars(select(AssertionResult)))
+    assert [row.passed for row in evidence] == [False]
+
+
+async def test_run_never_passes_on_failed_model_or_grader(api, monkeypatch):
+    http, app = api
+
+    def handler(request):
+        body = json.loads(request.content)
+        if "grade" in body["messages"][0]["content"]:
+            return completion("not json")
+        if body["messages"][-1]["content"] == "down":
+            return httpx.Response(401, json={"error": {"message": "bad key"}})
+        if body["messages"][-1]["content"] == "empty":
+            return completion("")
+        return completion("answer")
+
+    p, v, c = await setup(http, app, monkeypatch, handler)
+    for query, expected in [
+        ("down", {}),
+        ("empty", {}),
+        ("graded", {"behavior": "anything"}),
+    ]:
+        await http.post(
+            f"/v1/projects/{p}/test-cases", json={"input": query, "expected": expected}
+        )
+    job = await run_job(http, p, v, c)
+    assert job["status"] == "completed", job
+    assert job["result"]["passed"] == 0
+
+
+def events(text):
+    parsed = []
+    for frame in text.replace("\r\n", "\n").strip().split("\n\n"):
+        lines = frame.split("\n")
+        data = next(x[5:] for x in lines if x.startswith("data:"))
+        parsed.append((lines[0][6:].strip(), json.loads(data)))
+    return parsed
+
+
+async def test_chat_answers_with_history_and_saves_a_trace(api, monkeypatch):
+    http, app = api
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return completion("Hello there")
+
+    p, _, c = await setup(http, app, monkeypatch, handler)
+    history = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "Error: old failure"},
+        {"role": "assistant", "content": "reply"},
+        {"role": "user", "content": "hi"},
+    ]
+    body = {"message": "hi", "history": history, "credential_id": c}
+    response = await http.post(f"/v1/projects/{p}/chat", json=body)
+    assert events(response.text) == [
+        ("message.delta", {"text": "Hello there"}),
+        ("done", {}),
+    ]
+    sent = [m["content"] for m in seen[0]["messages"] if m["role"] != "system"]
+    assert sent == ["first", "reply", "hi"]
+    async with app.state.sessions() as db:
+        trace = await db.scalar(select(Trace))
+    assert (trace.input, trace.output) == ("hi", "Hello there")
+
+
+async def test_chat_reports_model_failure(api, monkeypatch):
+    http, app = api
+    p, _, c = await setup(
+        http,
+        app,
+        monkeypatch,
+        lambda r: httpx.Response(401, json={"error": {"message": "bad key"}}),
+    )
+    body = {"message": "hi", "history": [], "credential_id": c}
+    response = await http.post(f"/v1/projects/{p}/chat", json=body)
+    parsed = events(response.text)
+    assert parsed[0][0] == "error" and parsed[-1][0] == "done"
+    assert parsed[0][1]["error"]["message"]
+
+
+async def test_chat_run_test_returns_card_and_reuses_case(api, monkeypatch):
+    http, app = api
+    prompts = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        system = body["messages"][0]["content"]
+        if system.startswith("Write one"):
+            prompts.append(body)
+            return completion("Can I get a refund?")
+        if "grade" in system:
+            return completion('{"passed": false, "rationale": "Too vague"}')
+        if system.startswith("You diagnose"):
+            return completion('{"rule": "grounding", "confidence": 0.5}')
+        assert "30 days" in system
+        return completion("Maybe")
+
+    p, _, c = await setup(http, app, monkeypatch, handler)
+    message = "Run test: States the refund window\n\nAdditional context:\n30 days"
+    body = {"message": message, "history": [], "credential_id": c}
+    for _ in range(2):
+        response = await http.post(f"/v1/projects/{p}/chat", json=body)
+    name, tool = events(response.text)[-2]
+    assert (name, tool["type"]) == ("tool.result", "run_summary")
+    card = tool["data"]
+    assert card["verdict"] == "fail" and card["actual"] == "Maybe"
+    assert card["expected"] == "States the refund window"
+    assert card["explanation"] == "Too vague"
+    assert len(prompts) == 1
+    async with app.state.sessions() as db:
+        cases = list(await db.scalars(select(TestCase)))
+        results = list(await db.scalars(select(RunResult)))
+    assert len(cases) == 1 and cases[0].input == "Can I get a refund?"
+    assert len(results) == 2
+    diagnosis = await http.post(
+        f"/v1/run-results/{card['run_result_id']}/diagnose",
+        json={"credential_id": c},
+    )
+    assert diagnosis.status_code in (200, 201, 202)
+
+
+def test_prior_messages_drop_current_turn_with_added_context():
+    history = [{"role": "user", "content": "hi"}]
+    assert prior_messages(history, "hi\n\nAdditional context:\nx") == []
+
+
+async def fix_loop_fixture(http, app, monkeypatch, fixed=True):
+    def handler(request):
+        body = json.loads(request.content)
+        system = body["messages"][0]["content"]
+        if system.startswith("You improve"):
+            return completion(
+                '{"system_prompt": "Always cite 30 days.", "rationale": "r"}'
+            )
+        if system.startswith("You diagnose"):
+            return completion('{"rule": "grounding", "confidence": 0.5}')
+        if "grade" in system:
+            passed = "30 days" in body["messages"][1]["content"].split("criterion")[0]
+            return completion(json.dumps({"passed": passed, "rationale": "why"}))
+        return completion("30 days" if fixed and "cite" in system else "unsure")
+
+    p, v, c = await setup(http, app, monkeypatch, handler)
+    expected = {"behavior": "States 30 days"}
+    await http.post(
+        f"/v1/projects/{p}/test-cases", json={"input": "Dev?", "expected": expected}
+    )
+    await http.post(
+        f"/v1/projects/{p}/test-cases",
+        json={"input": "Holdout?", "expected": expected, "split": "holdout"},
+    )
+    job = await run_job(http, p, v, c)
+    summary = (await http.get(f"/v1/runs/{job['result']['run_id']}/summary")).json()
+    dev = next(r for r in summary["results"] if r["split"] == "dev")
+    diagnosis = await http.post(
+        f"/v1/run-results/{dev['id']}/diagnose", json={"credential_id": c}
+    )
+    return p, v, c, summary, diagnosis.json()["id"]
+
+
+async def verify_job(http, repair_id, c):
+    job = (
+        await http.post(f"/v1/repairs/{repair_id}/verify", json={"credential_id": c})
+    ).json()
+    return (await http.get(f"/v1/jobs/{job['job_id']}")).json()
+
+
+async def test_repair_and_verify_accept_a_real_improvement(api, monkeypatch):
+    http, app = api
+    p, v, c, _, diagnosis = await fix_loop_fixture(http, app, monkeypatch)
+    created = await http.post(
+        f"/v1/diagnoses/{diagnosis}/repairs", json={"credential_id": c}
+    )
+    assert created.status_code == 201, created.text
+    repair = created.json()
+    assert repair["patch_type"] == "prompt"
+    candidate = (await http.get(f"/v1/versions/{repair['new_version_id']}")).json()
+    assert candidate["parent_version_id"] == v
+    assert candidate["config"]["system_prompt"] == "Always cite 30 days."
+    assert candidate["config"]["knowledge_base"] == CONFIG["knowledge_base"]
+
+    job = await verify_job(http, repair["id"], c)
+    assert job["status"] == "completed", job
+    scores = job["result"]["scorecard"]
+    assert scores == {
+        "target_passed": True,
+        "regressions_count": 0,
+        "holdout_passed": True,
+        "accepted": True,
+    }
+    card = await http.get(f"/v1/verifications/{job['result']['verification_id']}")
+    assert card.json()["candidate"]["passed"] == 2
+    assert card.json()["baseline"]["passed"] == 0
+
+
+async def test_verify_rejects_a_repair_that_does_not_help(api, monkeypatch):
+    http, app = api
+    p, v, c, _, diagnosis = await fix_loop_fixture(http, app, monkeypatch, fixed=False)
+    repair = (
+        await http.post(f"/v1/diagnoses/{diagnosis}/repairs", json={"credential_id": c})
+    ).json()
+    job = await verify_job(http, repair["id"], c)
+    assert job["result"]["scorecard"]["target_passed"] is False
+    assert job["result"]["scorecard"]["accepted"] is False
+
+
+async def test_repair_refuses_holdout_results(api, monkeypatch):
+    http, app = api
+    p, v, c, summary, _ = await fix_loop_fixture(http, app, monkeypatch)
+    held = next(r for r in summary["results"] if r["split"] == "holdout")
+    diagnosis = await http.post(
+        f"/v1/run-results/{held['id']}/diagnose", json={"credential_id": c}
+    )
+    response = await http.post(
+        f"/v1/diagnoses/{diagnosis.json()['id']}/repairs", json={"credential_id": c}
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "holdout_target"
+
+
+def test_score_needs_holdout_tests_to_accept():
+    cases = [{"id": "a", "split": "dev"}]
+    scores = score(cases, {"a": False}, {"a": True}, "a")
+    assert scores["target_passed"] is True
+    assert (scores["holdout_passed"], scores["accepted"]) == (False, False)
+    with_regression = score(
+        [*cases, {"id": "b", "split": "holdout"}],
+        {"a": False, "b": True},
+        {"a": True, "b": False},
+        "a",
+    )
+    assert with_regression["regressions_count"] == 1
+    assert with_regression["accepted"] is False
+
+
+def test_numbers_are_not_unsupported_without_retrieved_text():
+    trace = {"output": "Ready in 30 minutes", "spans": [span("retrieval")]}
+    for item in trace["spans"]:
+        item["type"] = "retrieval"
+    assert classify(Facts(trace, {"expected": {}}, [])) is None

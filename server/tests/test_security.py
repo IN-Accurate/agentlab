@@ -159,7 +159,7 @@ def test_production_rejects_insecure_local_exception():
             _env_file=None,
             app_env="production",
             app_encryption_key=Fernet.generate_key().decode(),
-            testlab_allow_insecure_local=True,
+            agentlab_allow_insecure_local=True,
         )
 
 
@@ -320,7 +320,7 @@ async def test_safe_transport_validates_destination_at_call_time(monkeypatch):
     async def public(*args, **kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))]
 
-    settings = SimpleNamespace(testlab_allow_insecure_local=False)
+    settings = SimpleNamespace(agentlab_allow_insecure_local=False)
     inner = RecordingTransport()
     client = httpx.AsyncClient(transport=SafeTransport(settings, inner=inner))
     monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", private)
@@ -358,7 +358,7 @@ def test_rate_limit_table_is_bounded():
 
 
 def test_production_requires_api_key():
-    with pytest.raises(ValueError, match="TESTLAB_API_KEY"):
+    with pytest.raises(ValueError, match="AGENTLAB_API_KEY"):
         Settings(
             _env_file=None,
             app_env="production",
@@ -368,7 +368,7 @@ def test_production_requires_api_key():
         _env_file=None,
         app_env="production",
         app_encryption_key=Fernet.generate_key().decode(),
-        testlab_api_key="k",
+        agentlab_api_key="k",
     )
 
 
@@ -387,7 +387,7 @@ async def test_safe_transport_pins_validated_address(monkeypatch):
 
     monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
     monkeypatch.setattr(AutoBackend, "connect_tcp", fake_connect_tcp)
-    settings = SimpleNamespace(testlab_allow_insecure_local=False)
+    settings = SimpleNamespace(agentlab_allow_insecure_local=False)
     async with httpx.AsyncClient(transport=SafeTransport(settings)) as client:
         with pytest.raises(httpx.ConnectError):
             await client.get("https://example.com/v1")
@@ -412,7 +412,7 @@ async def test_safe_transport_repins_each_redirect_hop(monkeypatch):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
 
     monkeypatch.setattr(asyncio.get_running_loop(), "getaddrinfo", resolve)
-    settings = SimpleNamespace(testlab_allow_insecure_local=False)
+    settings = SimpleNamespace(agentlab_allow_insecure_local=False)
     async with httpx.AsyncClient(
         transport=SafeTransport(settings, inner=RedirectFixture())
     ) as client:

@@ -203,7 +203,7 @@ class SafeTransport(httpx.AsyncBaseTransport):
     """
 
     def __init__(self, settings, inner=None):
-        self._allow_local = settings.testlab_allow_insecure_local
+        self._allow_local = settings.agentlab_allow_insecure_local
         self._inner = inner or httpx.AsyncHTTPTransport()
 
     async def handle_async_request(self, request):

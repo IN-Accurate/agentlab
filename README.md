@@ -1,4 +1,4 @@
-# 🧪 TestLab
+# 🧪 AgentLab
 
 > **Failure-to-fix workbench for applications built on Meta's models.**  
 > Turn a bad answer into a reproducible test, isolate the root cause, propose a fix, and prove it doesn't break anything else.
@@ -7,7 +7,7 @@
 
 ## 🎯 Target Models
 
-TestLab interfaces with target models behind a unified adapter:
+AgentLab interfaces with target models behind a unified adapter:
 * **Muse Spark** — Accessible via the Meta Model API or OpenRouter.
 * **Llama** — Accessible via any OpenAI-compatible hosting endpoint.
 
@@ -82,7 +82,7 @@ Open http://localhost:5173. The dev server proxies API calls to the backend on `
 TEST_DATABASE_URL='<your-test-db-URL (name must contain "test")>' .venv/bin/python -m pytest server/tests -q
 ```
 
-Each test builds a fresh schema from `db/testlab_schema.sql` inside that database and drops it afterwards. Chat/test-run flows additionally require an evaluator configured on the backend; without one those endpoints return `503` with an explicit error code.
+Each test builds a fresh schema from `db/agentlab_schema.sql` inside that database and drops it afterwards. Chat/test-run flows additionally require an evaluator configured on the backend; without one those endpoints return `503` with an explicit error code.
 
 ---
 
@@ -102,10 +102,10 @@ Each test builds a fresh schema from `db/testlab_schema.sql` inside that databas
 
 > **Issue:** A customer support bot incorrectly claims refunds are allowed within **60 days**.
 
-1. **Detection:** TestLab flags the unsupported claim during automated evaluation.
-2. **Diagnosis:** TestLab reveals that the relevant 30-day refund policy chunk was never retrieved, confirming a **retrieval miss** via controlled replay.
-3. **Repair:** TestLab automatically proposes an updated retrieval filter along with an updated grounding rule.
-4. **Verification:** TestLab verifies the repair against all test suites, confirming the issue is resolved with zero regressions.
+1. **Detection:** AgentLab flags the unsupported claim during automated evaluation.
+2. **Diagnosis:** AgentLab reveals that the relevant 30-day refund policy chunk was never retrieved, confirming a **retrieval miss** via controlled replay.
+3. **Repair:** AgentLab automatically proposes an updated retrieval filter along with an updated grounding rule.
+4. **Verification:** AgentLab verifies the repair against all test suites, confirming the issue is resolved with zero regressions.
 
 ---
 

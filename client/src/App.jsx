@@ -3,11 +3,12 @@ import ChatView from './chat/ChatView.jsx';
 import ConnectForm from './chat/ConnectForm.jsx';
 import DashboardView from './dashboard/DashboardView.jsx';
 
-const STORE_KEY = 'testlab.chats.v1';
+const STORE_KEY = 'agentlab.chats.v1';
+const OLD_STORE_KEY = 'testlab.chats.v1';
 
 function loadChats() {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = localStorage.getItem(STORE_KEY) ?? localStorage.getItem(OLD_STORE_KEY);
     if (!raw) return [];
     return JSON.parse(raw).map((c) => ({
       ...c,
@@ -128,7 +129,7 @@ export default function App() {
         ☰
       </button>
       <aside className={`sidebar${menuOpen ? ' open' : ''}`}>
-        <div className="brand">TestLab</div>
+        <div className="brand">AgentLab</div>
         <button type="button" className="new-chat" onClick={createChat}>
           <span aria-hidden="true">＋</span> New chat
         </button>
@@ -190,6 +191,12 @@ export default function App() {
                 <section className="card connected-agent" aria-label="Connected agent">
                   <h2>Connected agent</h2>
                   <dl className="agent-details">
+                    {lastConnection.name ? (
+                      <>
+                        <dt>Name</dt>
+                        <dd>{lastConnection.name}</dd>
+                      </>
+                    ) : null}
                     <dt>Model</dt>
                     <dd>{lastConnection.model}</dd>
                     <dt>Endpoint</dt>

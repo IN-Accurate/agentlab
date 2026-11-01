@@ -22,6 +22,7 @@ from app.routers import (
     credentials,
     dashboard,
     fixloop,
+    huggingface,
     jobs,
     mvp,
     projects,
@@ -31,6 +32,7 @@ from app.routers import (
 )
 
 MAX_BODY_BYTES = 10_000_000
+CREDENTIAL_PATHS = ("/v1/credentials", "/v1/credentials/default")
 
 
 def create_app(settings=None, evaluator=None):
@@ -64,7 +66,7 @@ def create_app(settings=None, evaluator=None):
                 handler.removeFilter(f)
             await app.state.engine.dispose()
 
-    app = FastAPI(title="TestLab API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="AgentLab API", version="0.1.0", lifespan=lifespan)
     app.state.settings, app.state.sessions = settings, sessions
     app.state.engine = engine
     app.state.evaluator = evaluator
@@ -94,7 +96,7 @@ def create_app(settings=None, evaluator=None):
                     "Request body exceeds the 10MB limit",
                     413,
                 )
-            key = settings.testlab_api_key
+            key = settings.agentlab_api_key
             if key and not hmac.compare_digest(
                 request.headers.get("x-api-key", "").encode(), key.encode()
             ):
@@ -107,7 +109,7 @@ def create_app(settings=None, evaluator=None):
                 request, "key_in_url", "Credentials must not be placed in URLs", 400
             )
         if request.method == "POST" and (
-            request.url.path == "/v1/credentials" or request.url.path.endswith("/chat")
+            request.url.path in CREDENTIAL_PATHS or request.url.path.endswith("/chat")
         ):
             try:
                 if settings.app_env == "production" and request.url.scheme != "https":
@@ -115,7 +117,7 @@ def create_app(settings=None, evaluator=None):
                 rate_limit(
                     request,
                     settings.credential_rate_limit
-                    if request.url.path == "/v1/credentials"
+                    if request.url.path in CREDENTIAL_PATHS
                     else settings.chat_rate_limit,
                 )
             except AppError as exc:
@@ -208,6 +210,7 @@ def create_app(settings=None, evaluator=None):
     app.include_router(projects.router)
     app.include_router(traces.router)
     app.include_router(tests.router)
+    app.include_router(huggingface.router)
     app.include_router(runs.router)
     app.include_router(jobs.router)
     app.include_router(mvp.router)

@@ -10,7 +10,7 @@ from app.routers.jobs import submit
 def test_neon_url():
     settings = Settings(
         _env_file=None,
-        database_url="postgresql://example:REPLACE_ME@ep-example-pooler.example.com/testlab_test?sslmode=require&channel_binding=require",
+        database_url="postgresql://example:REPLACE_ME@ep-example-pooler.example.com/agentlab_test?sslmode=require&channel_binding=require",
     )
     url, args = settings.connection()
     assert url.drivername == "postgresql+asyncpg"
@@ -85,7 +85,7 @@ async def test_job_events_end_cleanly_when_job_expires():
 
 
 async def test_preflight_succeeds_with_api_key_set():
-    app = create_app(Settings(_env_file=None, testlab_api_key="test-key-123"))
+    app = create_app(Settings(_env_file=None, agentlab_api_key="test-key-123"))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app), base_url="http://testserver"
     ) as client:
