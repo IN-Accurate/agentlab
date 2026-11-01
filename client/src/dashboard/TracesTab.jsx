@@ -5,6 +5,13 @@ import { Empty, ErrorBox, Spinner, fmtTime, shortId } from '../ui.jsx';
 
 const TYPE_LABELS = { llm: 'LLM', retrieval: 'Retrieval', tool: 'Tool', validation: 'Validation' };
 
+function formatDuration(ms) {
+  if (!Number.isFinite(ms)) return '—';
+  const seconds = ms >= 1000;
+  const value = seconds ? ms / 1000 : ms;
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${seconds ? 's' : 'ms'}`;
+}
+
 function flattenTree(roots) {
   const out = [];
   (function walk(nodes, depth) {
@@ -35,7 +42,7 @@ function Waterfall({ rows, selectedId, onSelect }) {
         <span className="axis-row">
           {ticks.map((t, i) => (
             <span key={i}>
-              {i === 0 ? '0 ms' : t.toLocaleString()}
+              {formatDuration(t)}
             </span>
           ))}
         </span>
@@ -61,7 +68,7 @@ function Waterfall({ rows, selectedId, onSelect }) {
                     style={{ left: `${(start / total) * 100}%`, width: `${width}%` }}
                   />
                 </span>
-                <span className="muted">{r.node.latency_ms ?? '—'} ms</span>
+                <span className="muted">{formatDuration(r.node.latency_ms)}</span>
               </button>
             </li>
           );
@@ -223,7 +230,7 @@ export default function TracesTab({
                 </span>
               </div>
               <p className="metric-label">Input</p>
-              <p>{detailIO(detail.data.input)}</p>
+              <p>{DetailIO(detail.data.input)}</p>
               <p className="metric-label">Output</p>
               <p className={detail.data.status === 'ok' ? '' : 'bad-text'}>
                 {DetailIO(detail.data.output)}
@@ -246,7 +253,7 @@ export default function TracesTab({
                       {(span.chunks?.length ?? 0) > 0 ? ` · ${span.chunks.length} chunks` : ''}
                     </h3>
                     <span className="muted">
-                      {span.latency_ms ?? '—'} ms · {span.status}
+                      {formatDuration(span.latency_ms)} · {span.status}
                     </span>
                   </div>
                   <details>

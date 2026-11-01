@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { api, ApiError } from '../api.js';
 import { Field } from '../ui.jsx';
 
-export default function ConnectForm({ initialEndpoint = '', initialModel = '', onConnect }) {
+export default function ConnectForm({ initialEndpoint = '', initialModel = '', onConnect, onCancel }) {
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [model, setModel] = useState(initialModel);
   const [apiKey, setApiKey] = useState('');
@@ -50,13 +50,21 @@ export default function ConnectForm({ initialEndpoint = '', initialModel = '', o
       s.versionId ??= (
         await api(`/v1/projects/${s.projectId}/versions`, { method: 'POST', body: '{}' })
       ).id;
-      await api(`/v1/projects/${s.projectId}/agent/test-connection`, {
+      const result = await api(`/v1/projects/${s.projectId}/agent/test-connection`, {
         method: 'POST',
         body: JSON.stringify({
           credential_id: s.credentialId,
           agent: { type: 'openai_compatible', base_url: endpoint.trim(), model: model.trim() },
         }),
       });
+      if (!result?.ok) {
+        setFormError(
+          typeof result?.error === 'string'
+            ? result.error
+            : 'Connection failed. Check the details and retry.',
+        );
+        return;
+      }
       stash.current = null;
       onConnect({
         projectId: s.projectId,
@@ -116,9 +124,16 @@ export default function ConnectForm({ initialEndpoint = '', initialModel = '', o
           />
         )}
       </Field>
-      <button type="submit" className="btn-primary" disabled={pending}>
-        {pending ? 'Connecting…' : 'Connect agent'}
-      </button>
+      <div className="connect-actions">
+        <button type="submit" className="btn-primary" disabled={pending}>
+          {pending ? 'Connecting…' : 'Connect agent'}
+        </button>
+        {onCancel ? (
+          <button type="button" className="btn-secondary" onClick={onCancel} disabled={pending}>
+            Cancel
+          </button>
+        ) : null}
+      </div>
       {formError ? (
         <p className="field-error" role="alert">
           {formError}

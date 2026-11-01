@@ -89,7 +89,10 @@ summary:focus-visible {
 }
 
 .sidebar {
+  position: sticky;
+  top: 0;
   width: 260px;
+  height: 100vh;
   flex-shrink: 0;
   background: var(--sidebar);
   border-right: 1px solid var(--border);
@@ -97,6 +100,52 @@ summary:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.sidebar nav {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sidebar-agent {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sidebar .agent-manager-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agent-manager-text {
+  min-width: 0;
+}
+
+.connection-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--failure);
+  animation: connection-blink 1.6s ease-in-out infinite;
+}
+
+.connection-dot.connected {
+  background: #16a34a;
+}
+
+.connection-label {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+@keyframes connection-blink {
+  50% { opacity: 0.35; }
 }
 
 .brand {
@@ -410,8 +459,30 @@ select.project-select {
   margin: 32px 0 0;
 }
 
-.connect-form {
+.connect-form,
+.connected-agent {
   max-width: 560px;
+}
+
+.agent-details {
+  margin: 16px 0;
+}
+
+.agent-details dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-details dd {
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+
+.connect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .bubble-user {
@@ -464,6 +535,7 @@ select.project-select {
 }
 
 .composer-wrap {
+  width: 100%;
   padding: 12px 0 8px;
 }
 
@@ -1056,6 +1128,10 @@ section pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .connection-dot {
+    animation: none;
+  }
+
   .sidebar {
     transition: none;
   }
