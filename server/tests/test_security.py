@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import socket
 from types import SimpleNamespace
@@ -423,3 +424,48 @@ async def test_safe_transport_repins_each_redirect_hop(monkeypatch):
     assert [request.extensions["sni_hostname"] for request in seen] == [
         "example.com"
     ] * 2
+
+
+def test_redactor_finds_keys_by_hint_and_supports_overlap():
+    redactor = Redactor()
+    redactor.register("aaaa-secret-TAIL")
+    redactor.register("bbbb-secret-TAIL")
+    text = "x aaaa-secret-TAIL y bbbb-secret-TAIL z other-secret-TAIL"
+    assert redactor.text(text) == "x [REDACTED] y [REDACTED] z other-secret-TAIL"
+    assert redactor.text("-TAIL at the start") == "-TAIL at the start"
+
+
+def test_redactor_large_text_hashes_only_hint_candidates(monkeypatch):
+    redactor = Redactor()
+    redactor.register("a-long-secret-value")
+    calls = []
+    real = hashlib.sha256
+    monkeypatch.setattr(
+        "app.security.hashlib.sha256", lambda data: calls.append(1) or real(data)
+    )
+    assert redactor.text("x" * 100000) == "x" * 100000
+    assert calls == []
+
+
+def test_expired_entries_are_swept_on_put(monkeypatch):
+    evicted = []
+    store = CredentialStore(on_evict=evicted.append)
+    now = [10]
+    monkeypatch.setattr("app.store.monotonic", lambda: now[0])
+    store.put("old", "value", ttl=5)
+    now[0] = 20
+    store.put("new", "value", ttl=5)
+    assert evicted == ["value"] and list(store._items) == ["new"]
+
+
+async def test_resolved_addresses_keep_system_order(monkeypatch):
+    addresses = [(0, 0, 0, "", (ip, 443)) for ip in ("9.9.9.9", "1.1.1.1", "9.9.9.9")]
+
+    async def getaddrinfo(*args, **kwargs):
+        return addresses
+
+    monkeypatch.setattr(
+        "app.security.asyncio.get_running_loop",
+        lambda: SimpleNamespace(getaddrinfo=getaddrinfo),
+    )
+    assert await validate_url("https://model.example") == ["9.9.9.9", "1.1.1.1"]

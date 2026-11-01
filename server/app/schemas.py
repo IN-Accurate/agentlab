@@ -307,3 +307,23 @@ class RunResult(RequestModel):
     )
     diagnosis: str | None = None
     model: str
+
+
+def contains_nul(value):
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(contains_nul(k) or contains_nul(v) for k, v in value.items())
+    if isinstance(value, list):
+        return any(contains_nul(item) for item in value)
+    return False
+
+
+class RunResultCreate(RunResult):
+    @model_validator(mode="after")
+    def check_result(self):
+        if self.verdict == "pass" and self.failure_type is not None:
+            raise ValueError("Passing runs cannot have a failure type")
+        if contains_nul(self.model_dump()):
+            raise ValueError("Text cannot contain NUL characters")
+        return self

@@ -16,6 +16,7 @@ from cryptography.fernet import Fernet
 from app.errors import AppError
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+HINT_LENGTH = 4
 RATE_LIMIT_MAX_KEYS = 10000
 # Bearer values match by syntax and minimum length (fail closed); exact
 # prose nouns are allowlisted so documentation stays readable.
@@ -32,12 +33,12 @@ class Redactor:
 
     def register(self, key):
         # Keep hashes rather than an extra plaintext copy of every credential.
-        digest = hashlib.sha256(key.encode()).digest()
         counts = self._fingerprints.setdefault(len(key), Counter())
-        counts[digest] += 1
+        counts[key[-HINT_LENGTH:], hashlib.sha256(key.encode()).digest()] += 1
 
     def unregister(self, key):
-        self._drop(len(key), hashlib.sha256(key.encode()).digest())
+        digest = hashlib.sha256(key.encode()).digest()
+        self._drop(len(key), key[-HINT_LENGTH:], digest)
 
     def discard(self, value):
         # CredentialStore eviction callback: forget the fingerprint of a
@@ -48,17 +49,18 @@ class Redactor:
         try:
             digest = bytes.fromhex(fingerprint["digest"])
             length = fingerprint["length"]
+            hint = value["key_hint"]
         except (KeyError, TypeError, ValueError):
             return
-        self._drop(length, digest)
+        self._drop(length, hint, digest)
 
-    def _drop(self, length, digest):
+    def _drop(self, length, hint, digest):
         counts = self._fingerprints.get(length)
-        if not counts or digest not in counts:
+        if not counts or (hint, digest) not in counts:
             return
-        counts[digest] -= 1
-        if counts[digest] <= 0:
-            del counts[digest]
+        counts[hint, digest] -= 1
+        if counts[hint, digest] <= 0:
+            del counts[hint, digest]
         if not counts:
             del self._fingerprints[length]
 
@@ -74,12 +76,20 @@ class Redactor:
 
         value = re.sub(r"([?&])([^=&\s\"'<>]+)=([^&#\s\"'<>]*)", redact_query, value)
         for length, fingerprints in self._fingerprints.items():
+            # The public key hint narrows the search, so only likely windows
+            # are hashed instead of one at every offset.
             matches = []
-            for start in range(max(0, len(value) - length + 1)):
-                piece = value[start : start + length]
-                if hashlib.sha256(piece.encode()).digest() in fingerprints:
-                    matches.append((start, start + length))
-            for start, end in reversed(matches):
+            for hint in {hint for hint, _ in fingerprints}:
+                found = value.find(hint)
+                while found != -1:
+                    end = found + len(hint)
+                    start = end - length
+                    if start >= 0:
+                        digest = hashlib.sha256(value[start:end].encode()).digest()
+                        if (hint, digest) in fingerprints:
+                            matches.append((start, end))
+                    found = value.find(hint, found + 1)
+            for start, end in sorted(matches, reverse=True):
                 value = value[:start] + "[REDACTED]" + value[end:]
         # Secret-like patterns require realistic lengths (see BEARER_TOKEN_PATTERN):
         # sk- needs 20+ characters, so prose such as "sk-learn" passes through.
@@ -136,7 +146,8 @@ async def _resolve_public(host, port, allow_local, local_name):
         raise AppError(
             "unsafe_url", "Outbound host could not be resolved", 422
         ) from exc
-    resolved = sorted({item[4][0] for item in addresses})
+    # Keep getaddrinfo's order so the pinned address is the system's first choice.
+    resolved = list(dict.fromkeys(item[4][0] for item in addresses))
     if not resolved:
         raise AppError("unsafe_url", "Outbound host has no addresses", 422)
     for address in resolved:
@@ -263,7 +274,7 @@ def create_credential(data, settings, store, redactor):
     values.update(
         credential_id=identifier,
         ciphertext=Fernet(settings.app_encryption_key).encrypt(key.encode()).decode(),
-        key_hint=key[-4:],
+        key_hint=key[-HINT_LENGTH:],
         key_fingerprint={"length": len(key), "digest": digest.hexdigest()},
         expires_at=(datetime.now(UTC) + timedelta(seconds=ttl)).isoformat(),
     )

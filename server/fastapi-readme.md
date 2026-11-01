@@ -24,20 +24,20 @@ A captured answer says 60 days; the policy says 30 days. Capture the trace and c
 
 | Step | Request | Response |
 | --- | --- | --- |
-| Project | POST `/v 1/projects` with `{"name":"Acme Support"}` |201 project `{id,name,created_at}` |
-| Baseline | POST `/v 1/projects/{id}/versions` with `{"config":{"system_prompt":"Answer from policy"}}` |201 version `{id,project_id,parent_version_id,config,created_at}` |
-| Credential | POST `/v 1/credentials` with `{provider,model,api_key}` |201 metadata with credential_id; no key |
-| Captured trace | POST `/v 1/traces` with `{id,app_version_id,input,output,spans}` |201 trace; repeated IDs do not duplicate spans |
-| Test | POST `/v 1/projects/{id}/test-cases/from-trace/{trace_id}` with `{}` |201 test containing original input |
-| Assertion | POST `/v 1/test-cases/{id}/assertions` with `{"kind":"deterministic","spec":{"type":"contains","value":"30 days"}}` |201 stored specification; not executed |
-| Run | POST `/v 1/projects/{id}/runs` with `{version_id,credential_id}` |202 job, or 503 without evaluator |
-| Diagnose | POST `/v 1/run-results/{id}/diagnose` with `{credential_id}` |Stored diagnosis from evaluator |
-| Confirm | POST `/v 1/diagnoses/{id}/replay` with `{credential_id,changed_variable,new_value}` |201 stored replay |
-| Repair | POST `/v 1/diagnoses/{id}/repairs` with `{credential_id}` |201 repair referencing a new version |
-| Verify | POST `/v 1/repairs/{id}/verify` with `{credential_id}` |202 job; evaluator supplies verification_id and scorecard |
-| Scorecard | GET `/v 1/verifications/{id}` |Stored verdict plus baseline/candidate summaries |
+| Project | POST `/v1/projects` with `{"name":"Acme Support"}` |201 project `{id,name,created_at}` |
+| Baseline | POST `/v1/projects/{id}/versions` with `{"config":{"system_prompt":"Answer from policy"}}` |201 version `{id,project_id,parent_version_id,config,created_at}` |
+| Credential | POST `/v1/credentials` with `{provider,model,api_key}` |201 metadata with credential_id; no key |
+| Captured trace | POST `/v1/traces` with `{id,app_version_id,input,output,spans}` |201 trace; repeated IDs do not duplicate spans |
+| Test | POST `/v1/projects/{id}/test-cases/from-trace/{trace_id}` with `{}` |201 test containing original input |
+| Assertion | POST `/v1/test-cases/{id}/assertions` with `{"kind":"deterministic","spec":{"type":"contains","value":"30 days"}}` |201 stored specification; not executed |
+| Run | POST `/v1/projects/{id}/runs` with `{version_id,credential_id}` |202 job, or 503 without evaluator |
+| Diagnose | POST `/v1/run-results/{id}/diagnose` with `{credential_id}` |Stored diagnosis from evaluator |
+| Confirm | POST `/v1/diagnoses/{id}/replay` with `{credential_id,changed_variable,new_value}` |201 stored replay |
+| Repair | POST `/v1/diagnoses/{id}/repairs` with `{credential_id}` |201 repair referencing a new version |
+| Verify | POST `/v1/repairs/{id}/verify` with `{credential_id}` |202 job; evaluator supplies verification_id and scorecard |
+| Scorecard | GET `/v1/verifications/{id}` |Stored verdict plus baseline/candidate summaries |
 
-Run, verify and improve are asynchronous. Poll GET `/v 1/jobs/{job_id}` until completed or failed. The backend must persist referenced records before returning. A job is completed only after the transaction commits. Failure rolls it back.
+Run, verify and improve are asynchronous. Poll GET `/v1/jobs/{job_id}` until completed or failed. The backend must persist referenced records before returning. A job is completed only after the transaction commits. Failure rolls it back.
 
 ## 4. Folder map
 
@@ -76,7 +76,7 @@ Run, verify and improve are asynchronous. Poll GET `/v 1/jobs/{job_id}` until co
 | tests/test_views.py | Chat forwarding and stored verdict preservation |
 | tests/test_seed.py | Canned setup reset preserves unrelated projects |
 | scripts/seed_demo.py | Canned setup data only; no AI-generated evaluation |
-| insomnia/testlab.insomnia.json | Native v 4 requests with direct response chaining |
+| insomnia/testlab.insomnia.json | Native v4 requests with direct response chaining |
 | requirements.txt | Pinned dependencies installed with pip |
 | pytest.ini | Async test configuration |
 | fastapi-readme.md | This guide |
@@ -126,7 +126,7 @@ The API owns CRUD and ingestion. The evaluator owns AI-produced records and all 
 
 ## 8. API-key handling
 
-POST credentials encrypts keys using Fernet and stores ciphertext in memory with TTL7200 seconds, maximum 86400 seconds. GET exposes metadata and only the last four key characters. DELETE revokes immediately. Credentials are never stored in Postgres. Only explicitly supplied credential IDs can be accessed by an evaluator operation. Production requires HTTPS and a stable APP_ENCRYPTION_KEY. There is no user authentication/login. Protect deployment behind an authenticated gateway before sharing it publicly. RSA client-side encryption is a possible later feature, not implemented.
+POST credentials encrypts keys using Fernet and stores ciphertext in memory with TTL 7200 seconds, maximum 86400 seconds. GET exposes metadata and only the last four key characters. DELETE revokes immediately. Credentials are never stored in Postgres. Only explicitly supplied credential IDs can be accessed by an evaluator operation. Production requires HTTPS and a stable APP_ENCRYPTION_KEY. There is no user authentication/login. Protect deployment behind an authenticated gateway before sharing it publicly. RSA client-side encryption is a possible later feature, not implemented.
 
 Registered keys, Bearer values and key query fields are redacted. User URLs must pass HTTPS and public-DNS checks. The AI-owned outbound client must validate again at connection time, pin safe DNS addresses, reject unsafe redirects, and enforce its own timeout/size limits. The API bridge contains no outbound model client.
 
@@ -182,9 +182,9 @@ python server/scripts/seed_demo.py --reset
 
 Use a dedicated Neon branch for manual testing. Initialize the SQL only if that database is empty. Never reapply schema blindly to existing data. A health 200 does not prove database connectivity. POST a project, then query the same ID in Neon's SQL editor to prove persistence.
 
-Import server/insomnia/testlab.insomnia.json using File import. This is native Insomnia v 4 JSON, not Postman scripts. Base URL defaults to http://localhost:8000. Send Create project, Create initial version, Create credential, Create test, then assertions and traces. Direct response tags read the latest source responses automatically. Missing setup history reports a tag error. No empty ID variables need to be updated manually. Create a fresh credential after restart. Trace IDs remain stable for duplicate-ingest checks; change trace_id for a different captured trace.
+Import server/insomnia/testlab.insomnia.json using File import. This is native Insomnia v4 JSON, not Postman scripts. Base URL defaults to http://localhost:8000. Send Create project, Create initial version, Create credential, Create test, then assertions and traces. Direct response tags read the latest source responses automatically. Missing setup history reports a tag error. No empty ID variables need to be updated manually. Create a fresh credential after restart. Trace IDs remain stable for duplicate-ingest checks; change trace_id for a different captured trace.
 
-DELETE requests are in 99 Cleanupand must run last. Do not run the entire collection blindly. AI POST requests return 503 until the evaluator is connected. Read-only result routes need real evaluator records or explicit canned fixtures. Verification job polling needs the job_id returned by verify, not the earlier run's job_id. The automatic run comparison defaults to the same run; select two actual run IDs to compare different versions.
+DELETE requests are in 99 Cleanup and must run last. Do not run the entire collection blindly. AI POST requests return 503 until the evaluator is connected. Read-only result routes need real evaluator records or explicit canned fixtures. Verification job polling needs the job_id returned by verify, not the earlier run's job_id. The automatic run comparison defaults to the same run; select two actual run IDs to compare different versions.
 
 Alternative: import http://localhost:8000/openapi.json directly. OpenAPI imports define requests but do not capture resource IDs automatically. /docs provides interactive schemas.
 
@@ -219,7 +219,7 @@ Context supplies session, session_factory(), credentials.metadata(id), credentia
 
 Hosted vs external execution, replay support, confirmation, repair templates, holdout isolation and verification acceptance are implemented by the evaluator team. External agents commonly expose only prompt/params/tools controls; retrieval changes must not be claimed if their API does not support them.
 
-OpenRouter credential example is provider=openrouter, model=REPLACE_ME, api_key=REPLACE_ME. External agent config can specify type=openai_compatible and base_url=https://openrouter.ai/api/v 1. Gemini can use provider=custom and Google's OpenAI-compatible base URL. Storing either credential does not contact a provider; the integration must implement test_connection.
+OpenRouter credential example is provider=openrouter, model=REPLACE_ME, api_key=REPLACE_ME. External agent config can specify type=openai_compatible and base_url=https://openrouter.ai/api/v1. Gemini can use provider=custom and Google's OpenAI-compatible base URL. Storing either credential does not contact a provider; the integration must implement test_connection.
 
 ## 13. Frontend contract
 
@@ -257,7 +257,7 @@ Why rules before judges? That is an evaluator policy for cheap, explainable chec
 ## 17. Ten-minute walkthrough
 
 1. Minute 0–1: distinguish API-owned validation/transport from evaluator-owned AI decisions.
-2. Minute 1–2: start server; inspect /health, /v 1/meta and /docs.
+2. Minute 1–2: start server; inspect /health, /v1/meta and /docs.
 3. Minute 2–4: create project/version/test/assertion; show matching Neon row IDs.
 4. Minute 4–5: ingest a canned trace twice; show one span tree.
 5. Minute 5–6: create/revoke a dummy credential; explain TTL and redaction.
@@ -268,4 +268,4 @@ Why rules before judges? That is an evaluator policy for cheap, explainable chec
 
 ## 18. MVP runs endpoints
 
-`/v1/mvp/runs` records simplified evaluation runs in the shared `runs` table, keyed by client-supplied `run_id` instead of app versions. `POST /v1/mvp/runs` validates the RunResult model (verdict and failure_type literals plus the 0–1 grounding range mirror the table CHECKs, so violations return 422 instead of 409), requires an existing parent when `parent_run_id` is set (404), and returns 201; duplicate `run_id` values return 409. `GET /v1/mvp/runs/{run_id}` reads one run. `GET /v1/mvp/scorecard` returns `{total, by_verdict, by_failure_type}` with zero-filled groups. `GET /v1/mvp/runs/{run_id}/diff` returns the run, its parent, and whether the verdict changed; runs without a parent return 404. MVP queries only touch rows with `run_id` set, so legacy evaluator rows (NULL `run_id`) are excluded; conversely, legacy run reads now include the MVP columns as nulls.
+`/v1/mvp/runs` records simplified evaluation runs in the shared `runs` table, keyed by client-supplied `run_id` instead of app versions. `POST /v1/mvp/runs` validates the RunResult model (verdict and failure_type literals plus the 0–1 grounding range mirror the table CHECKs, so violations return 422 instead of 409; passing runs with a failure_type and text containing NUL also return 422), requires an existing parent when `parent_run_id` is set (404), and returns 201; duplicate `run_id` values return 409. `GET /v1/mvp/runs/{run_id}` reads one run. `GET /v1/mvp/scorecard` returns `{total, by_verdict, by_failure_type}` with zero-filled groups. `GET /v1/mvp/runs/{run_id}/diff` returns the run, its parent, and whether the verdict changed; runs without a parent return 404. MVP queries only touch rows with `run_id` set, so legacy evaluator rows (NULL `run_id`) are excluded; conversely, legacy run reads now include the MVP columns as nulls.

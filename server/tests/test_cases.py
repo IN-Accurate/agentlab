@@ -181,3 +181,38 @@ async def test_stable_split(api):
         await client.post(f"/v1/projects/{project}/test-cases/split", json={})
     ).json()
     assert first == second
+
+
+async def test_tested_cases_keep_their_split_for_saved_summaries(api):
+    client, app = api
+    project, version = await project_version(client)
+    ids = [
+        (
+            await client.post(
+                f"/v1/projects/{project}/test-cases",
+                json={"input": f"Question {i}", "split": "holdout"},
+            )
+        ).json()["id"]
+        for i in range(12)
+    ]
+    tested, untested = ids[0], ids[1]
+    async with app.state.sessions() as db, db.begin():
+        run = Run(app_version_id=UUID(version), params={})
+        db.add(run)
+        await db.flush()
+        db.add(RunResult(run_id=run.id, test_case_id=UUID(tested), passed=True))
+    locked = await client.patch(f"/v1/test-cases/{tested}", json={"split": "dev"})
+    assert (
+        locked.status_code == 409 and locked.json()["error"]["code"] == "split_locked"
+    )
+    same = await client.patch(f"/v1/test-cases/{tested}", json={"split": "holdout"})
+    assert same.status_code == 200
+    moved = await client.patch(f"/v1/test-cases/{untested}", json={"split": "dev"})
+    assert moved.status_code == 200
+    items = (
+        await client.post(f"/v1/projects/{project}/test-cases/split", json={})
+    ).json()["items"]
+    splits = {item["id"]: item["split"] for item in items}
+    assert splits[tested] == "holdout" and "dev" in splits.values()
+    summary = (await client.get(f"/v1/runs/{run.id}")).status_code
+    assert summary == 200

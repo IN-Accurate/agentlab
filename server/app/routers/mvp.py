@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import session
 from app.errors import AppError
 from app.models import Run
-from app.schemas import RunResult
+from app.schemas import RunResult, RunResultCreate
 
 router = APIRouter(prefix="/v1/mvp", tags=["MVP runs"])
 
@@ -53,7 +53,7 @@ def scorecard_counts(total, verdict_rows, failure_rows):
     "/runs", response_model=RunResult, status_code=201, summary="Record an MVP run"
 )
 async def create_run(
-    data: RunResult, db: AsyncSession = Depends(session, scope="function")
+    data: RunResultCreate, db: AsyncSession = Depends(session, scope="function")
 ):
     if data.parent_run_id is not None:
         await require_run(

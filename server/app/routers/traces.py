@@ -1,6 +1,7 @@
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +45,14 @@ async def details(db, identifier):
     return {**record(trace), "spans": flat, "span_tree": roots}
 
 
+def tree_response(trace, status_code=200):
+    # Pydantic's recursion guard fails on span trees deeper than about 128.
+    head = TraceDetail(**{**trace, "span_tree": []}).model_dump(mode="json")
+    return JSONResponse(
+        {**head, "span_tree": trace["span_tree"]}, status_code=status_code
+    )
+
+
 async def ingest(db, data, redactor):
     await require(db, AppVersion, data.app_version_id)
     safe = redactor.scrub(data.model_dump(mode="json"))
@@ -81,7 +90,7 @@ async def ingest(db, data, redactor):
         raise AppError(
             "invalid_span_parent", "Parent span does not exist in this trace", 422
         )
-    rows = {}
+    chunks = []
     while pending:
         ready = [
             span
@@ -100,17 +109,18 @@ async def ingest(db, data, redactor):
                 **span.model_dump(exclude={"parent_sdk_span_id", "chunks", "payload"}),
                 payload=redactor.scrub(span.payload),
             )
+            # Parents are added first and span IDs are pre-assigned, so one
+            # flush inserts the whole tree in order.
             db.add(row)
-            rows[span.sdk_span_id] = (row, span)
+            chunks += [
+                RetrievedChunk(span_id=row.id, **redactor.scrub(chunk.model_dump()))
+                for chunk in span.chunks
+            ]
             existing[span.sdk_span_id] = row
             del pending[span.sdk_span_id]
-        # Flush each wave: parents must be in the transaction before their
-        # children are inserted, and the unit of work cannot sort the
-        # self-referential spans table against retrieved_chunks on its own.
-        await db.flush()
-    for row, span in rows.values():
-        for chunk in span.chunks:
-            db.add(RetrievedChunk(span_id=row.id, **redactor.scrub(chunk.model_dump())))
+    # No relationships are declared, so spans must reach the database first.
+    await db.flush()
+    db.add_all(chunks)
     await db.flush()
     return await details(db, data.id)
 
@@ -126,7 +136,7 @@ async def create(
     request: Request,
     db: AsyncSession = Depends(session, scope="function"),
 ):
-    return await ingest(db, data, request.app.state.redactor)
+    return tree_response(await ingest(db, data, request.app.state.redactor), 201)
 
 
 @router.get("", response_model=Page, summary="List traces by version and status")
@@ -151,7 +161,7 @@ async def listing(
     summary="Read trace, span tree and retrieved chunks",
 )
 async def get(id: UUID, db: AsyncSession = Depends(session, scope="function")):
-    return await details(db, id)
+    return tree_response(await details(db, id))
 
 
 @router.get("/{id}/spans", response_model=Page, summary="Read trace spans and chunks")

@@ -102,3 +102,29 @@ async def test_missing_parent_rejected_and_chunk_text_redacted(api):
     payload["spans"][0]["parent_sdk_span_id"] = "missing"
     response = await client.post("/v1/traces", json=payload)
     assert response.status_code == 422, response.text
+
+
+async def test_deepest_allowed_span_chain_round_trips(api):
+    client, app = api
+    body = await setup_trace(client)
+    body["spans"] = [
+        {
+            "sdk_span_id": f"s{i}",
+            "parent_sdk_span_id": f"s{i - 1}" if i else None,
+            "type": "llm",
+            "latency_ms": 1,
+            "started_at": "2026-01-01T00:00:00Z",
+            "chunks": [{"rank": 1, "text": "t"}] if i % 2 else [],
+        }
+        for i in reversed(range(200))
+    ]
+    created = await client.post("/v1/traces", json=body)
+    assert created.status_code == 201, created.text
+    read = (await client.get(f"/v1/traces/{body['id']}")).json()
+    assert read == created.json() and read["created_at"].endswith("Z")
+    depth, node = 1, read["span_tree"][0]
+    while node["children"]:
+        depth, node = depth + 1, node["children"][0]
+    assert depth == 200
+    async with app.state.sessions() as db:
+        assert await db.scalar(select(func.count()).select_from(RetrievedChunk)) == 100
