@@ -12,6 +12,7 @@ from app.models import (
     AppVersion,
     Assertion,
     Project,
+    RunResult,
     TestCase,
     Trace,
 )
@@ -28,6 +29,17 @@ from app.schemas import (
 from app.services.evaluator import prepare, execute
 
 router = APIRouter(prefix="/v1", tags=["Tests and assertions"])
+
+
+async def tested_ids(db, ids):
+    # Saved summaries read the case's split, so tested cases must keep theirs.
+    return set(
+        await db.scalars(
+            select(RunResult.test_case_id)
+            .where(RunResult.test_case_id.in_(ids))
+            .distinct()
+        )
+    )
 
 
 async def source_trace(db, project_id, trace_id):
@@ -105,6 +117,10 @@ async def update(
                 "trace_input_mismatch",
                 "Trace-derived tests preserve the original input",
                 422,
+            )
+        if key == "split" and value != row.split and await tested_ids(db, [id]):
+            raise AppError(
+                "split_locked", "Tests with run results keep their split", 409
             )
         setattr(row, key, value)
     await db.flush()
@@ -197,7 +213,10 @@ async def split(
             )
         ).all()
     )
+    tested = await tested_ids(db, [row.id for row in rows])
     for row in rows:
+        if row.id in tested:
+            continue
         bucket = (
             int.from_bytes(hashlib.sha256(str(row.id).encode()).digest()[:8], "big")
             % 10

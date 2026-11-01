@@ -9,7 +9,10 @@ class CredentialStore:
         self._on_evict = on_evict
 
     def put(self, key, value, ttl=7200):
-        self._items[str(key)] = (monotonic() + ttl, deepcopy(value))
+        now = monotonic()
+        for stale in [k for k, (expires, _) in self._items.items() if now >= expires]:
+            self.delete(stale)
+        self._items[str(key)] = (now + ttl, deepcopy(value))
 
     def get(self, key):
         item = self._items.get(str(key))

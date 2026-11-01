@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from app.models import Run
 from app.routers.mvp import scorecard_counts, to_result
-from app.schemas import RunResult
+from app.schemas import RunResult, RunResultCreate
 
 
 def demo_payload(**overrides):
@@ -138,3 +138,17 @@ async def test_mvp_diff(api):
     assert diff["verdict_changed"] is True
     assert (await client.get("/v1/mvp/runs/demo-run-1/diff")).status_code == 404
     assert (await client.get("/v1/mvp/runs/missing/diff")).status_code == 404
+
+
+async def test_mvp_rejects_contradictory_or_unstorable_runs(api):
+    client, _ = api
+    passing = demo_payload(run_id="p", verdict="pass", failure_type="retrieval_miss")
+    assert (await client.post("/v1/mvp/runs", json=passing)).status_code == 422
+    for field, value in [
+        ("answer", "a\x00b"),
+        ("retrieved_chunks", [{"text": "a\x00b"}]),
+    ]:
+        payload = demo_payload(run_id="n", **{field: value})
+        assert (await client.post("/v1/mvp/runs", json=payload)).status_code == 422
+    assert RunResultCreate(**demo_payload()).verdict == "fail"
+    assert RunResult(**passing).failure_type == "retrieval_miss"
