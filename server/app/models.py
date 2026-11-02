@@ -39,6 +39,19 @@ class Project(Record, Base):
     name: Mapped[str] = mapped_column(Text)
 
 
+class SavedCredential(Record, Base):
+    __tablename__ = "saved_credentials"
+    provider: Mapped[str] = mapped_column(Text)
+    base_url: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    judge_model: Mapped[str | None] = mapped_column(Text)
+    ciphertext: Mapped[str] = mapped_column(Text)
+    key_hint: Mapped[str] = mapped_column(Text)
+    key_fingerprint: Mapped[dict] = mapped_column(JSONB)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (Index("idx_saved_credentials_expires_at", "expires_at"),)
+
+
 class AppVersion(Record, Base):
     __tablename__ = "app_versions"
     project_id: Mapped[UUID] = mapped_column(

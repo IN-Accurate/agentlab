@@ -1,4 +1,6 @@
 import inspect
+import logging
+import sys
 from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
@@ -19,6 +21,7 @@ from app.models import (
     Verification,
 )
 from app.routers.traces import details
+from app.services.credentials import release, scope
 from app.security import (
     credential_record,
     decrypt_credential,
@@ -135,8 +138,7 @@ async def prepare(
         for k in ("credential_id", "judge_credential_id")
         if values.get(k)
     }
-    for identifier in allowed:
-        credential_record(identifier, state.credential_store)
+    allowed = await scope(state, allowed)
     payload = {
         "operation": operation,
         "project_id": str(project_id),
@@ -149,6 +151,8 @@ async def prepare(
 
 
 def context(db, state, allowed, progress=None, http_client=None):
+    store = getattr(allowed, "store", state.credential_store)
+
     def check(identifier):
         identifier = str(identifier)
         if identifier not in allowed:
@@ -157,18 +161,19 @@ def context(db, state, allowed, progress=None, http_client=None):
                 "Credential not supplied for this operation",
                 403,
             )
+        if store is not state.credential_store:
+            # Preserve immediate revocation within this worker for active calls.
+            credential_record(identifier, state.credential_store)
         return identifier
 
     def metadata(identifier):
-        value = credential_record(check(identifier), state.credential_store)
+        value = credential_record(check(identifier), store)
         return {
             k: v for k, v in value.items() if k not in {"ciphertext", "key_fingerprint"}
         }
 
     def decrypt(identifier):
-        return decrypt_credential(
-            check(identifier), state.credential_store, state.settings
-        )
+        return decrypt_credential(check(identifier), store, state.settings)
 
     def session_factory():
         # Independent sessions the evaluator may commit per result or batch,
@@ -188,6 +193,28 @@ def context(db, state, allowed, progress=None, http_client=None):
 
 
 async def execute(db, state, prepared, progress=None):
+    payload, allowed = prepared
+    try:
+        # A job may start after its request; recheck persisted revocations.
+        allowed = await scope(state, allowed)
+        return await _execute(db, state, (payload, allowed), progress)
+    except AppError as exc:
+        exc.message = state.redactor.text(exc.message)
+        exc.details = state.redactor.scrub(exc.details)
+        exc.args = (exc.message,)
+        raise
+    except Exception as exc:
+        # Jobs log failures after this function unwinds. Capture the safe traceback
+        # before releasing fingerprints retained for revoked in-flight credentials.
+        exc._agentlab_redacted_traceback = state.redactor.text(
+            logging.Formatter().formatException(sys.exc_info())
+        )
+        raise
+    finally:
+        release(allowed)
+
+
+async def _execute(db, state, prepared, progress=None):
     payload, allowed = prepared
     backend = require_backend(state)
     function = getattr(backend, "execute", None)

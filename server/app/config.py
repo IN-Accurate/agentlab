@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # Upgrading from the old default: ALTER DATABASE testlab RENAME TO agentlab;
     database_url: str = "postgresql+asyncpg://localhost/agentlab"
     app_env: str = "development"
-    app_encryption_key: str | None = None
+    app_encryption_key: str | None = Field(default=None, exclude=True, repr=False)
     cors_origins: str = "http://localhost:3000"
     agentlab_allow_insecure_local: bool = False
     # Lets callers without AGENTLAB_API_KEY use the default Meta key, from localhost only.

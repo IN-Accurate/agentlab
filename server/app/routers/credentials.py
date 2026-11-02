@@ -9,12 +9,8 @@ from app.schemas import (
     CredentialResponse,
     DefaultCredentialResponse,
 )
-from app.security import (
-    create_credential,
-    credential_metadata,
-    revoke_credential,
-    validate_url,
-)
+from app.security import validate_url
+from app.services import credentials
 
 router = APIRouter(prefix="/v1/credentials", tags=["Credentials"])
 
@@ -72,9 +68,7 @@ async def create(data: CredentialCreate, request: Request):
             data.base_url, request.app.state.settings.agentlab_allow_insecure_local
         )
     state = request.app.state
-    return create_credential(
-        data, state.settings, state.credential_store, state.redactor
-    )
+    return await credentials.create(state, data)
 
 
 @router.get(
@@ -122,17 +116,17 @@ async def create_default(request: Request):
         model=settings.meta_model,
         api_key=key,
     )
-    return create_credential(data, settings, state.credential_store, state.redactor)
+    return await credentials.create(state, data)
 
 
 @router.get(
     "/{id}", response_model=CredentialResponse, summary="Read credential metadata"
 )
 async def metadata(id: UUID, request: Request):
-    return credential_metadata(str(id), request.app.state.credential_store)
+    return await credentials.metadata(request.app.state, id)
 
 
 @router.delete("/{id}", status_code=204, summary="Revoke a credential immediately")
 async def revoke(id: UUID, request: Request):
-    revoke_credential(str(id), request.app.state.credential_store)
+    await credentials.revoke(request.app.state, id)
     return Response(status_code=204)
