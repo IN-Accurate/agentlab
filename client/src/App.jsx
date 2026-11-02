@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { dedupeConnections, upsertAgent } from './agents.js';
 import { RECENT_LIMIT, chatCreatedAt, groupChats, visibleChats } from './chatGroups.js';
 import { loadUi, saveUi } from './uiState.js';
@@ -83,6 +83,14 @@ function loadAgents() {
   }
 }
 
+function persistChats(chats) {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(chats));
+  } catch {
+    // Private browsing / quota: conversations last for this tab only.
+  }
+}
+
 function newChat(connection) {
   return {
     id: `c${Date.now()}`,
@@ -126,13 +134,19 @@ export default function App() {
     }
   });
 
+  const chatsRef = useRef(chats);
   useEffect(() => {
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(chats));
-    } catch {
-      // Private browsing: conversations last for this tab only.
-    }
+    chatsRef.current = chats;
+    // Streams update chats per token; trailing debounce avoids
+    // re-serializing every conversation on each one.
+    const timer = setTimeout(() => persistChats(chatsRef.current), 500);
+    return () => clearTimeout(timer);
   }, [chats]);
+  useEffect(() => {
+    const flush = () => persistChats(chatsRef.current);
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, []);
 
   useEffect(() => {
     try {
