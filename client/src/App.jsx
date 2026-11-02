@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { dedupeConnections, upsertAgent } from './agents.js';
 import { RECENT_LIMIT, chatCreatedAt, groupChats, visibleChats } from './chatGroups.js';
+import { loadUi, saveUi } from './uiState.js';
 import ChatView from './chat/ChatView.jsx';
 import ConnectForm from './chat/ConnectForm.jsx';
 import DashboardView from './dashboard/DashboardView.jsx';
@@ -101,9 +102,10 @@ export default function App() {
   });
   // One entry per project, newest first; each keeps the key it connected with.
   const [agents, setAgents] = useState(loadAgents);
-  const [activeId, setActiveId] = useState(null);
-  const [view, setView] = useState('chat');
-  const [dash, setDash] = useState({ tab: 'overview', projectId: null });
+  const [savedUi] = useState(loadUi);
+  const [activeId, setActiveId] = useState(savedUi.activeId);
+  const [view, setView] = useState(savedUi.view);
+  const [dash, setDash] = useState(savedUi.dash);
   const [menuOpen, setMenuOpen] = useState(false);
   const [changingAgent, setChangingAgent] = useState(false);
   const [chatsExpanded, setChatsExpanded] = useState(false);
@@ -139,6 +141,10 @@ export default function App() {
       // Private browsing: connections last for this tab only.
     }
   }, [agents]);
+
+  useEffect(() => {
+    saveUi({ view, activeId, dash });
+  }, [view, activeId, dash]);
 
   useEffect(() => {
     try {

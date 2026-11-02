@@ -56,4 +56,4 @@ client/
     └── styles.css        # Design tokens + all component styles
 ```
 
-Chats (titles, messages, connection metadata — never API keys) persist in `localStorage`; dashboard selections persist in memory while navigating.
+Chats (titles, messages, connection metadata — never API keys) persist in `localStorage`. UI location (view, active chat, dashboard tab/project) also persists and restores on reload; drill selections (run/result/trace/review) reset.
