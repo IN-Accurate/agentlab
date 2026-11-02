@@ -165,7 +165,7 @@ summary:focus-visible {
 .sidebar-agent {
   margin-top: auto;
   padding-top: 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--accent);
   flex-shrink: 0;
 }
 
@@ -228,6 +228,7 @@ summary:focus-visible {
 .sidebar button.selected {
   background: var(--selected);
   font-weight: 600;
+  color: var(--accent);
 }
 
 .sidebar nav ul {
@@ -275,7 +276,7 @@ summary:focus-visible {
 }
 
 .sidebar .group-toggle button[aria-pressed='true'] {
-  color: var(--text);
+  color: var(--accent);
   background: var(--selected);
   font-weight: 600;
 }
@@ -353,12 +354,12 @@ summary:focus-visible {
 }
 
 .sidebar .see-more:hover {
-  color: var(--text);
+  color: var(--accent);
 }
 
 .sidebar-divider {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--accent);
   margin: 8px 0;
 }
 
@@ -399,7 +400,7 @@ summary:focus-visible {
 }
 
 .theme-toggle button[aria-pressed='true'] {
-  color: var(--text);
+  color: var(--accent);
 }
 
 .menu-btn {
