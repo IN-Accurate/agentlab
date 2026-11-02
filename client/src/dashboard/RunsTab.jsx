@@ -399,7 +399,7 @@ function Evidence({ resultId, caseMap, onOpenTrace, onDiagnose, diagnosing, onCo
   });
   const expected = testCase?.expected;
   return (
-    <section aria-label="Result evidence">
+    <section aria-label="Result evidence" className="card-panel">
       <div className="section-head">
         <h3>Result evidence</h3>
         {detail.data.trace_id ? (

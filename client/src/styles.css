@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light dark;
   --surface: #ffffff;
   --sidebar: #f4f4f5;
   --border: #e4e4e7;
@@ -8,12 +9,66 @@
   --primary-text: #ffffff;
   --positive: #0f766e;
   --positive-soft: #f0fdfa;
+  --accent: #b23a10;
   --failure: #b91c1c;
   --failure-soft: #fef2f2;
   --selected: #e8eeea;
+  --success: #16a34a;
+  --backdrop: rgba(0, 0, 0, 0.35);
+  --shadow: 0 0 24px rgba(0, 0, 0, 0.15);
   --radius: 8px;
   --radius-card: 16px;
   --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --surface: #17171c;
+  --sidebar: #101014;
+  --border: #2c2c31;
+  --text: #f4f4f5;
+  --muted: #a1a1aa;
+  --primary: #e4e4e7;
+  --primary-text: #18181b;
+  --positive: #2dd4bf;
+  --positive-soft: #0c2b27;
+  --accent: #fad10f;
+  --failure: #f87171;
+  --failure-soft: #33191a;
+  --selected: #26262c;
+  --success: #4ade80;
+  --backdrop: rgba(0, 0, 0, 0.6);
+  --shadow: 0 0 24px rgba(0, 0, 0, 0.6);
+}
+
+/* Dark-mode card glow: gold edge + halo on card surfaces. Light mode untouched. */
+[data-theme='dark'] .card,
+[data-theme='dark'] .card-panel,
+[data-theme='dark'] .modal,
+[data-theme='dark'] .composer,
+[data-theme='dark'] .rail li button.selected {
+  border-color: rgba(250, 209, 15, 0.3);
+  box-shadow: 0 0 18px rgba(250, 209, 15, 0.12);
+}
+
+[data-theme='dark'] .diff-before,
+[data-theme='dark'] .diff-after {
+  border: 1px solid rgba(250, 209, 15, 0.25);
+  box-shadow: 0 0 18px rgba(250, 209, 15, 0.1);
+}
+
+.card-panel {
+  margin: 12px 0;
+}
+
+[data-theme='dark'] .card-panel {
+  border: 1px solid rgba(250, 209, 15, 0.3);
+  border-radius: var(--radius-card);
+  padding: 4px 20px 16px;
 }
 
 * {
@@ -134,7 +189,7 @@ summary:focus-visible {
 }
 
 .connection-dot.connected {
-  background: #16a34a;
+  background: var(--success);
 }
 
 .connection-label {
@@ -198,6 +253,46 @@ summary:focus-visible {
   border: none;
   border-top: 1px solid var(--border);
   margin: 8px 0;
+}
+
+.theme-toggle {
+  position: relative;
+  display: flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px;
+  margin-top: 8px;
+}
+
+.theme-thumb {
+  position: absolute;
+  pointer-events: none;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 3);
+  background: var(--border);
+  border-radius: 6px;
+  transition: transform 0.18s ease;
+}
+
+.theme-toggle button {
+  flex: 1;
+  position: relative;
+  z-index: 1;
+  width: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 6px 0;
+  background: transparent;
+}
+
+.theme-toggle button[aria-pressed='true'] {
+  color: var(--text);
 }
 
 .menu-btn {
@@ -289,7 +384,7 @@ summary:focus-visible {
   background: none;
   border: none;
   padding: 0;
-  color: var(--positive);
+  color: var(--accent);
   cursor: pointer;
   font-weight: 500;
 }
@@ -397,7 +492,7 @@ select.project-select {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -643,7 +738,7 @@ select.project-select {
 .tabs {
   display: flex;
   gap: 28px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--accent);
   margin-bottom: 20px;
 }
 
@@ -659,9 +754,9 @@ select.project-select {
 }
 
 .tabs button.active {
-  color: var(--positive);
+  color: var(--accent);
   font-weight: 600;
-  border-bottom-color: var(--positive);
+  border-bottom-color: var(--accent);
 }
 
 .metrics {
@@ -692,7 +787,7 @@ select.project-select {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--accent);
   padding-top: 16px;
   margin-top: 20px;
 }
@@ -723,19 +818,19 @@ select.project-select {
 
 .chart .trend-line {
   fill: none;
-  stroke: var(--positive);
+  stroke: var(--accent);
   stroke-width: 2.5;
 }
 
 .chart .trend-dot {
-  fill: var(--positive);
+  fill: var(--accent);
 }
 
 .overview-bottom {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 32px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--accent);
   margin-top: 20px;
   padding-top: 16px;
 }
@@ -761,7 +856,7 @@ select.project-select {
 .bar span {
   display: block;
   height: 100%;
-  background: var(--positive);
+  background: var(--accent);
   border-radius: 4px;
   opacity: 0.55;
 }
@@ -1018,7 +1113,7 @@ select.project-select {
   position: absolute;
   top: 0;
   height: 100%;
-  background: var(--positive);
+  background: var(--accent);
   opacity: 0.75;
   border-radius: 4px;
   min-width: 6px;
@@ -1177,7 +1272,7 @@ section pre {
 
   .sidebar.open {
     transform: none;
-    box-shadow: 0 0 24px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--shadow);
   }
 
   .main {
@@ -1192,6 +1287,10 @@ section pre {
 @media (prefers-reduced-motion: reduce) {
   .connection-dot {
     animation: none;
+  }
+
+  .theme-thumb {
+    transition: none;
   }
 
   .sidebar {
