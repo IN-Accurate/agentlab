@@ -611,6 +611,23 @@ summary:focus-visible {
   margin-left: -12px;
 }
 
+.dashboard .project-select {
+  color: var(--accent);
+}
+
+.dashboard .project-select:hover {
+  border-color: var(--accent);
+}
+
+.dashboard .project-select:focus-visible {
+  outline: 1px solid var(--accent);
+}
+
+.dashboard .connect-actions .btn-secondary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .field-error {
   color: var(--failure);
   font-size: 14px;

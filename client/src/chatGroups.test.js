@@ -66,8 +66,8 @@ describe('groupChats', () => {
   });
 
   it('groups by agent in order of first appearance', () => {
-    const a = { endpoint: 'https://a.example', model: 'm1', name: 'Refund bot' };
-    const b = { endpoint: 'https://b.example', model: 'm2' };
+    const a = { endpoint: 'https://a.example', model: 'm1', name: 'Refund bot', projectId: 'pa' };
+    const b = { endpoint: 'https://b.example', model: 'm2', projectId: 'pb' };
     const chats = [mk('1', 1, a), mk('2', 2), mk('3', 3, b), mk('4', 4, a)];
     const groups = groupChats(chats, 'agent', now);
     assert.deepEqual(
@@ -85,9 +85,11 @@ describe('groupChats', () => {
     assert.equal(agentLabel({ connection: null }), 'No agent');
     assert.equal(agentLabel({ connection: { model: 'm' } }), 'm');
     assert.equal(agentLabel({ connection: { endpoint: 'e' } }), 'e');
+    assert.equal(agentKey({ connection: { projectId: 'p1' } }), 'p1');
+    assert.equal(agentKey({ connection: {} }), 'none');
     assert.notEqual(
-      agentKey({ connection: { endpoint: 'e', model: 'm1' } }),
-      agentKey({ connection: { endpoint: 'e', model: 'm2' } }),
+      agentKey({ connection: { projectId: 'p1' } }),
+      agentKey({ connection: { projectId: 'p2' } }),
     );
   });
 });
