@@ -1,7 +1,7 @@
 import json
 import re
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -11,6 +11,7 @@ from pydantic import (
     Field,
     SecretStr,
     create_model,
+    field_serializer,
     model_validator,
 )
 
@@ -72,6 +73,8 @@ class DefaultCredentialResponse(BaseModel):
 class Credentials(RequestModel):
     credential_id: UUID
     judge_credential_id: UUID | None = None
+    # Team members each run on their own key: member project id -> credential id.
+    member_credentials: dict[UUID, UUID] = Field(default_factory=dict, max_length=10)
 
 
 class ProjectCreate(RequestModel):
@@ -102,6 +105,58 @@ class KnowledgeChunk(RequestModel):
     source: str
 
 
+MemberName = Annotated[str, Field(pattern=r"^[a-z0-9_-]{1,40}$")]
+Keyword = Annotated[str, Field(min_length=1, max_length=100)]
+
+
+class TeamMember(RequestModel):
+    name: MemberName
+    project_id: UUID
+    description: str = Field(default="", max_length=1000)
+
+    # Configs are stored as JSONB from a plain model_dump.
+    @field_serializer("project_id")
+    def text_id(self, value):
+        return str(value)
+
+
+class RoutingRule(RequestModel):
+    member: MemberName
+    keywords: list[Keyword] = Field(min_length=1, max_length=100)
+
+
+class TeamRouter(RequestModel):
+    type: Literal["rules"] = "rules"
+    rules: list[RoutingRule] = Field(default_factory=list, max_length=100)
+    fallback: MemberName
+
+
+class TeamLimits(RequestModel):
+    max_steps: int = Field(default=12, ge=1, le=100)
+    max_tokens: int | None = Field(default=None, ge=1, le=10_000_000)
+
+
+class TeamConfig(RequestModel):
+    """The version's own prompt and agent act as the single coordinator."""
+
+    members: list[TeamMember] = Field(min_length=1, max_length=10)
+    router: TeamRouter
+    limits: TeamLimits = Field(default_factory=TeamLimits)
+
+    @model_validator(mode="after")
+    def known_members(self):
+        names = [member.name for member in self.members]
+        if len(set(names)) != len(names):
+            raise ValueError("Member names must be unique")
+        if len({member.project_id for member in self.members}) != len(names):
+            raise ValueError("Each member must be a different project")
+        targets = [rule.member for rule in self.router.rules] + [self.router.fallback]
+        unknown = sorted(set(targets) - set(names))
+        if unknown:
+            raise ValueError(f"Router names unknown members: {', '.join(unknown)}")
+        return self
+
+
 class HostedConfig(RequestModel):
     system_prompt: str = Field(default="", max_length=32000)
     knowledge_base: list[KnowledgeChunk] = Field(default_factory=list, max_length=1000)
@@ -111,6 +166,7 @@ class HostedConfig(RequestModel):
     grounding_rule: str = Field(default="", max_length=16000)
     validators: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    team: TeamConfig | None = None
 
     @model_validator(mode="after")
     def no_secret_fields(self):
@@ -136,7 +192,7 @@ class ChunkCreate(RequestModel):
 class SpanCreate(RequestModel):
     sdk_span_id: str = Field(min_length=1, max_length=200)
     parent_sdk_span_id: str | None = None
-    type: Literal["llm", "retrieval", "tool", "validation"]
+    type: Literal["llm", "retrieval", "tool", "validation", "router", "agent"]
     started_at: AwareDatetime | None = None
     latency_ms: int | None = Field(default=None, ge=0)
     status: Literal["ok", "error"] = "ok"

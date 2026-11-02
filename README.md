@@ -64,6 +64,21 @@ python3.11 -m venv .venv
 DATABASE_URL='<your-postgres-direct-URL>' .venv/bin/python -m uvicorn app.main:app --port 8000 --app-dir server
 ```
 
+For a new database, install the backend dependencies and run
+`DATABASE_URL='<your-postgres-direct-URL>' .venv/bin/python -m alembic -c server/alembic.ini upgrade head`
+before starting the API. For a database that already contains AgentLab data, follow the
+[baseline adoption instructions](server/migrations/README.md) instead of recreating its tables.
+The migration head includes the team `router` and `agent` span types. The adoption
+procedure also recognizes the team schema created before saved-key storage existed.
+
+To save BYOK credentials across server restarts, generate a Fernet key once with
+`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+and configure it as `APP_ENCRYPTION_KEY`. Keep the same secret for every worker and
+restart; changing or losing it makes existing saved keys unreadable. Credentials keep
+their existing expiry (two hours by default, up to one day) and can be revoked through
+the existing credential API. Without this setting, development retains temporary
+in-memory credentials. Run uvicorn with `--env-file .env` to load local settings.
+
 Verify: `curl localhost:8000/health` → `{"status":"ok"}`. Interactive docs at http://localhost:8000/docs (note: `/` itself is a 404 — the API lives under `/v1`).
 
 ### 2. Frontend
@@ -86,11 +101,12 @@ Each test builds a fresh schema from `db/agentlab_schema.sql` inside that databa
 
 ---
 
-## 🗄️ Database Schema Overview (14 Tables)
+## 🗄️ Database Schema Overview (15 Tables)
 
 | Domain | Tables |
 | :--- | :--- |
 | **App** | `projects`, `app_versions` |
+| **Saved keys** | `saved_credentials` (Fernet ciphertext and credential metadata) |
 | **Traces** | `traces`, `spans`, `retrieved_chunks` |
 | **Tests** | `test_cases`, `assertions` |
 | **Runs** | `runs`, `run_results`, `assertion_results` |

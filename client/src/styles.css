@@ -748,6 +748,14 @@ select.project-select {
   max-width: 560px;
 }
 
+.agent-list {
+  display: grid;
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
 .agent-details {
   margin: 16px 0;
 }

@@ -137,6 +137,11 @@ export default function App() {
 
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
   const lastConnection = chats.find((c) => c.connection)?.connection ?? null;
+  // One entry per project, newest first; each keeps the key it connected with.
+  const agents = chats
+    .map((c) => c.connection)
+    .filter((conn, i, all) => conn && all.findIndex((x) => x?.projectId === conn.projectId) === i);
+  const agentKeys = Object.fromEntries(agents.map((a) => [a.projectId, a.credentialId]));
   const chatCredentialId =
     chats.find((c) => c.connection?.projectId === dash.projectId)?.connection
       ?.credentialId ?? null;
@@ -159,8 +164,8 @@ export default function App() {
     setPendingDelete(null);
   }
 
-  function createChat() {
-    const chat = newChat(lastConnection);
+  function createChat(connection = lastConnection) {
+    const chat = newChat(connection);
     setChats((cs) => [chat, ...cs]);
     setActiveId(chat.id);
     setView('chat');
@@ -345,7 +350,11 @@ export default function App() {
             <span className="agent-manager-text">
               Agent Manager
               <span className="connection-label truncate" title={lastConnection?.model}>
-                {lastConnection ? `Connected · ${lastConnection.model}` : 'Not connected'}
+                {agents.length > 1
+                  ? `${agents.length} agents connected`
+                  : lastConnection
+                    ? `Connected · ${lastConnection.model}`
+                    : 'Not connected'}
               </span>
             </span>
           </button>
@@ -375,39 +384,45 @@ export default function App() {
           <div>
             <header className="page-head">
               <h1>Agent Manager</h1>
-              <span className={lastConnection ? 'good-text' : 'bad-text'} role="status">
-                {lastConnection ? 'Agent connected' : 'Not connected'}
+              <span className={agents.length ? 'good-text' : 'bad-text'} role="status">
+                {agents.length === 1
+                  ? 'Agent connected'
+                  : agents.length
+                    ? `${agents.length} agents connected`
+                    : 'Not connected'}
               </span>
             </header>
             <div className="chat-narrow agents-narrow">
-              {lastConnection && !changingAgent ? (
-                <section className="card connected-agent" aria-label="Connected agent">
-                  <h2>Connected agent</h2>
-                  <dl className="agent-details">
-                    {lastConnection.name ? (
-                      <>
-                        <dt>Name</dt>
-                        <dd>{lastConnection.name}</dd>
-                      </>
-                    ) : null}
-                    <dt>Model</dt>
-                    <dd>{lastConnection.model}</dd>
-                    <dt>Endpoint</dt>
-                    <dd>{lastConnection.endpoint}</dd>
-                  </dl>
+              {agents.length && !changingAgent ? (
+                <>
+                  <ul className="agent-list">
+                    {agents.map((agent) => (
+                      <li key={agent.projectId}>
+                        <section className="card connected-agent" aria-label={agent.name || agent.model}>
+                          <h2>{agent.name || 'Connected agent'}</h2>
+                          <dl className="agent-details">
+                            <dt>Model</dt>
+                            <dd>{agent.model}</dd>
+                            <dt>Endpoint</dt>
+                            <dd>{agent.endpoint}</dd>
+                          </dl>
+                          <button type="button" className="btn-secondary" onClick={() => createChat(agent)}>
+                            New chat with this agent
+                          </button>
+                        </section>
+                      </li>
+                    ))}
+                  </ul>
                   <button type="button" className="btn-secondary" onClick={() => setChangingAgent(true)}>
-                    Change agent
+                    Connect another agent
                   </button>
-                </section>
+                </>
               ) : (
                 <>
                   <p className="muted">Connect an agent here to use it in new chats.</p>
                   <ConnectForm
-                    initialName={lastConnection?.name ?? ''}
-                    initialEndpoint={lastConnection?.endpoint ?? ''}
-                    initialModel={lastConnection?.model ?? ''}
                     onConnect={connectAgent}
-                    onCancel={lastConnection ? () => setChangingAgent(false) : undefined}
+                    onCancel={agents.length ? () => setChangingAgent(false) : undefined}
                   />
                 </>
               )}
@@ -416,6 +431,7 @@ export default function App() {
         ) : view === 'chat' && activeChat ? (
           <ChatView
             chat={activeChat}
+            agentKeys={agentKeys}
             onPatch={patchChat}
             onOpenAgentManager={openAgentManager}
             onOpenEvidence={openEvidence}

@@ -88,6 +88,7 @@ function SuggestedTests({ heading, tests, onAdd }) {
 
 export default function ChatView({
   chat,
+  agentKeys = {},
   onPatch,
   onOpenAgentManager,
   onOpenEvidence,
@@ -156,10 +157,21 @@ export default function ChatView({
     const paint = () =>
       patchMessages((m) => (m.id === shell.id ? { ...m, text: acc.text, cards: acc.cards } : m));
 
+    // A team connection lists its members; each runs on the key it connected with.
+    const memberCredentials = Object.fromEntries(
+      (conn.memberProjectIds ?? [])
+        .filter((id) => agentKeys[id])
+        .map((id) => [id, agentKeys[id]]),
+    );
     try {
       await streamChat(
         conn.projectId,
-        { message: bodyText, history, credential_id: conn.credentialId },
+        {
+          message: bodyText,
+          history,
+          credential_id: conn.credentialId,
+          member_credentials: memberCredentials,
+        },
         (event, data) => {
           if (event === 'message.delta') {
             acc.text += data.text ?? '';
@@ -334,7 +346,9 @@ export default function ChatView({
     <div className="chat">
       <header className="page-head">
         <h1 className="truncate">{chat.title}</h1>
-        <span className="muted">{conn ? 'Agent connected' : 'Not connected'}</span>
+        <span className="muted truncate">
+          {conn ? `Agent: ${conn.name || conn.model}` : 'Not connected'}
+        </span>
       </header>
       <div className="chat-body" ref={scrollRef}>
         {!conn ? (

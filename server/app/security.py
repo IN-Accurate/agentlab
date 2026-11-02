@@ -11,7 +11,7 @@ from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 import httpx
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
 from app.errors import AppError
 
@@ -44,6 +44,12 @@ class Redactor:
         # Keep hashes rather than an extra plaintext copy of every credential.
         counts = self._fingerprints.setdefault(len(key), Counter())
         counts[key[-HINT_LENGTH:], hashlib.sha256(key.encode()).digest()] += 1
+
+    def restore(self, value):
+        """Restore a saved credential's redaction without decrypting its key."""
+        fingerprint = value["key_fingerprint"]
+        counts = self._fingerprints.setdefault(fingerprint["length"], Counter())
+        counts[value["key_hint"], bytes.fromhex(fingerprint["digest"])] += 1
 
     def unregister(self, key):
         digest = hashlib.sha256(key.encode()).digest()
@@ -137,8 +143,13 @@ class RedactionFilter(logging.Filter):
             record.msg = self.redactor.text(record.getMessage())
             record.args = ()
         if record.exc_info:
-            record.exc_text = self.redactor.text(
-                logging.Formatter().formatException(record.exc_info)
+            captured = getattr(record.exc_info[1], "_agentlab_redacted_traceback", None)
+            record.exc_text = (
+                captured
+                if captured is not None
+                else self.redactor.text(
+                    logging.Formatter().formatException(record.exc_info)
+                )
             )
             record.exc_info = None
         return True
@@ -279,6 +290,7 @@ def create_credential(data, settings, store, redactor):
         )
     digest = hashlib.sha256(key.encode())
     redactor.register(key)
+    values = redactor.scrub(values)
     identifier = str(uuid4())
     values.update(
         credential_id=identifier,
@@ -309,11 +321,18 @@ def credential_metadata(identifier, store):
 
 
 def decrypt_credential(identifier, store, settings):
-    return (
-        Fernet(settings.app_encryption_key)
-        .decrypt(credential_record(identifier, store)["ciphertext"].encode())
-        .decode()
-    )
+    try:
+        return (
+            Fernet(settings.app_encryption_key)
+            .decrypt(credential_record(identifier, store)["ciphertext"].encode())
+            .decode()
+        )
+    except InvalidToken as exc:
+        raise AppError(
+            "credential_unavailable",
+            "Credential cannot be decrypted with the configured encryption key",
+            422,
+        ) from exc
 
 
 def revoke_credential(identifier, store):
