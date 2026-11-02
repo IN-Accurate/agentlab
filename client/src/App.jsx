@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dedupeConnections, upsertAgent } from './agents.js';
+import { trimChatsForPersist } from './chatStorage.js';
 import { RECENT_LIMIT, chatCreatedAt, groupChats, visibleChats } from './chatGroups.js';
 import { loadUi, saveUi } from './uiState.js';
-import ChatView from './chat/ChatView.jsx';
-import ConnectForm from './chat/ConnectForm.jsx';
-import DashboardView from './dashboard/DashboardView.jsx';
 import LogoMark from './LogoMark.jsx';
+import { Spinner } from './ui.jsx';
+
+const ChatView = lazy(() => import('./chat/ChatView.jsx'));
+const ConnectForm = lazy(() => import('./chat/ConnectForm.jsx'));
+const DashboardView = lazy(() => import('./dashboard/DashboardView.jsx'));
 
 const STORE_KEY = 'agentlab.chats.v1';
 const OLD_STORE_KEY = 'testlab.chats.v1';
@@ -85,11 +88,67 @@ function loadAgents() {
 
 function persistChats(chats) {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(chats));
+    localStorage.setItem(STORE_KEY, JSON.stringify(trimChatsForPersist(chats)));
   } catch {
     // Private browsing / quota: conversations last for this tab only.
   }
 }
+
+// Memoized on primitives + stable callbacks so streaming updates (which only
+// change messages) don't re-render sidebar rows.
+const ChatRow = memo(function ChatRow({
+  id,
+  title,
+  selected,
+  armed,
+  deletable,
+  onOpen,
+  onArm,
+  onConfirm,
+}) {
+  return (
+    <li className="chat-row">
+      {armed ? (
+        <span
+          className="chat-del-confirm"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') onArm(null);
+          }}
+        >
+          <span className="chat-del-text">Delete this chat?</span>
+          <button type="button" className="chat-del-yes" autoFocus onClick={() => onConfirm(id)}>
+            Delete
+          </button>
+          <button type="button" onClick={() => onArm(null)}>
+            Cancel
+          </button>
+        </span>
+      ) : (
+        <>
+          <button
+            type="button"
+            className={selected ? 'selected' : ''}
+            onClick={() => onOpen(id)}
+            title={title}
+          >
+            {title}
+          </button>
+          {deletable && (
+            <button
+              type="button"
+              className="chat-del"
+              aria-label={`Delete ${title}`}
+              title="Delete chat"
+              onClick={() => onArm(id)}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          )}
+        </>
+      )}
+    </li>
+  );
+});
 
 function newChat(connection) {
   return {
@@ -202,12 +261,12 @@ export default function App() {
     setMenuOpen(false);
   }
 
-  function openChat(id) {
+  const openChat = useCallback((id) => {
     setActiveId(id);
     setView('chat');
     setMenuOpen(false);
     setPendingDelete(null);
-  }
+  }, []);
 
   function createChat(connection = lastConnection) {
     const chat = newChat(connection);
@@ -222,10 +281,11 @@ export default function App() {
     setChats((cs) => cs.map((c) => (c.id === id ? fn(c) : c)));
   }
 
-  function deleteChat(id) {
+  const deleteChat = useCallback((id) => {
     // Removes the local conversation only; traces, tests and projects
     // are evidence and stay.
-    const next = chats.filter((c) => c.id !== id);
+    setPendingDelete(null);
+    const next = chatsRef.current.filter((c) => c.id !== id);
     if (next.length) {
       setChats(next);
     } else {
@@ -235,8 +295,7 @@ export default function App() {
       setChats([fresh]);
       setActiveId(fresh.id);
     }
-    setPendingDelete(null);
-  }
+  }, []);
 
   function openAgentManager() {
     setChangingAgent(false);
@@ -281,7 +340,10 @@ export default function App() {
     else createChat();
   }
 
-  const groups = groupChats(visibleChats(chats, chatsExpanded), groupMode);
+  const groups = useMemo(
+    () => groupChats(visibleChats(chats, chatsExpanded), groupMode),
+    [chats, chatsExpanded, groupMode],
+  );
 
   return (
     <div className="app">
@@ -326,44 +388,17 @@ export default function App() {
               <p className="chat-group-heading">{group.label}</p>
               <ul>
                 {group.chats.map((c) => (
-                  <li key={c.id} className="chat-row">
-                    {pendingDelete === c.id ? (
-                      <span
-                        className="chat-del-confirm"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') setPendingDelete(null);
-                        }}
-                      >
-                        <span className="chat-del-text">Delete this chat?</span>
-                        <button type="button" className="chat-del-yes" autoFocus onClick={() => deleteChat(c.id)}>
-                          Delete
-                        </button>
-                        <button type="button" onClick={() => setPendingDelete(null)}>
-                          Cancel
-                        </button>
-                      </span>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          className={view === 'chat' && activeChat?.id === c.id ? 'selected' : ''}
-                          onClick={() => openChat(c.id)}
-                          title={c.title}
-                        >
-                          {c.title}
-                        </button>
-                        <button
-                          type="button"
-                          className="chat-del"
-                          aria-label={`Delete ${c.title}`}
-                          title="Delete chat"
-                          onClick={() => setPendingDelete(c.id)}
-                        >
-                          <span aria-hidden="true">×</span>
-                        </button>
-                      </>
-                    )}
-                  </li>
+                  <ChatRow
+                    key={c.id}
+                    id={c.id}
+                    title={c.title}
+                    selected={view === 'chat' && activeChat?.id === c.id}
+                    armed={pendingDelete === c.id}
+                    deletable={chats.length > 1 || (c.messages?.length ?? 0) > 0 || !!c.titleSet}
+                    onOpen={openChat}
+                    onArm={setPendingDelete}
+                    onConfirm={deleteChat}
+                  />
                 ))}
               </ul>
             </div>
@@ -433,6 +468,7 @@ export default function App() {
         </div>
       </aside>
       <main className="main">
+        <Suspense fallback={<Spinner />}>
         {view === 'agents' ? (
           <div>
             <header className="page-head">
@@ -507,6 +543,7 @@ export default function App() {
             onContinueInChat={continueInChat}
           />
         )}
+        </Suspense>
       </main>
     </div>
   );
