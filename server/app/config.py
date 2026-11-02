@@ -7,13 +7,16 @@ from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=None, extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=None, extra="ignore", hide_input_in_errors=True
+    )
+    # Upgrading from the old default: ALTER DATABASE testlab RENAME TO agentlab;
     database_url: str = "postgresql+asyncpg://localhost/agentlab"
     app_env: str = "development"
     app_encryption_key: str | None = None
     cors_origins: str = "http://localhost:3000"
     agentlab_allow_insecure_local: bool = False
-    agentlab_api_key: str | None = None
+    agentlab_api_key: str | None = Field(default=None, exclude=True, repr=False)
     testlab_api_key: str | None = Field(default=None, exclude=True, repr=False)
     meta_api_key: SecretStr | None = None
     meta_base_url: str | None = None

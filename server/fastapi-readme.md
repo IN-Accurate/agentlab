@@ -136,7 +136,7 @@ Registered keys, Bearer values and key query fields are redacted. User URLs must
 
 | Variable | Default / missing behavior |
 | --- | --- |
-| DATABASE_URL | Localhost fallback; must explicitly select intended Neon branch |
+| DATABASE_URL | Localhost fallback `agentlab`; must explicitly select intended Neon branch. Existing local installs that used the old `testlab` default must run `ALTER DATABASE testlab RENAME TO agentlab;` once before upgrading |
 | APP_ENV | development; production enforces encryption key and HTTPS credential/chat entry |
 | APP_ENCRYPTION_KEY | Generated in development with restart warning; required in production |
 | CORS_ORIGINS | http://localhost:3000; comma-separated explicit origins, no wildcard |
@@ -145,7 +145,7 @@ Registered keys, Bearer values and key query fields are redacted. User URLs must
 | CHAT_RATE_LIMIT |30 per peer IP per minute |
 | TEST_DATABASE_URL | Tests only; disposable database name must contain test |
 | AGENTLAB_API_KEY | Unset leaves /v1 open for local development; when set, every /v1 route requires a matching X-Api-Key header |
-| META_API_KEY, META_BASE_URL, META_MODEL | Optional default Meta key. When all three are set, POST `/v1/credentials/default` stores a normal temporary credential from them; the key is never returned. Anyone who can reach /v1 can use it |
+| META_API_KEY, META_BASE_URL, META_MODEL | Optional default Meta key. When all three are set, POST `/v1/credentials/default` stores a normal temporary credential from them; the key is never returned. Without AGENTLAB_API_KEY, only localhost can use it; with it, anyone holding that key can |
 
 No Redis, AGENTLAB_FAKE_LLM, provider referer/title settings or model execution options are used by this API. Provider settings belong to the separately supplied evaluator. The server does not automatically read .env: use Uvicorn --env-file. Existing shell variables take precedence over dotenv loading. Clear an obsolete shell DATABASE_URL before switching to a .env connection.
 

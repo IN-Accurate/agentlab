@@ -118,13 +118,17 @@ async def test_chunked_body_without_length_rejected():
 
 
 def test_old_api_key_name_stops_startup(monkeypatch):
+    monkeypatch.delenv("AGENTLAB_API_KEY", raising=False)
     monkeypatch.setenv("TESTLAB_API_KEY", "old-key-123")
-    with pytest.raises(ValueError, match="AGENTLAB_API_KEY"):
+    with pytest.raises(ValueError, match="AGENTLAB_API_KEY") as caught:
         Settings(_env_file=None)
+    assert "old-key-123" not in str(caught.value)
     assert Settings(_env_file=None, agentlab_api_key="new-key-123").agentlab_api_key
 
 
-def test_old_api_key_name_is_rejected_from_every_input(tmp_path):
+def test_old_api_key_name_is_rejected_from_every_input(tmp_path, monkeypatch):
+    monkeypatch.delenv("AGENTLAB_API_KEY", raising=False)
+    monkeypatch.delenv("TESTLAB_API_KEY", raising=False)
     with pytest.raises(ValueError, match="AGENTLAB_API_KEY"):
         Settings(_env_file=None, testlab_api_key="old-key-123")
     dotenv = tmp_path / ".env"

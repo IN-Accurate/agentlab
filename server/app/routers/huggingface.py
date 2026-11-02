@@ -132,7 +132,7 @@ async def import_rows(
     request: Request,
     db: AsyncSession = Depends(session, scope="function"),
 ):
-    await require(db, Project, id)
+    # Network reads come first so no database connection waits on Hugging Face.
     rows, columns = [], []
     chosen = {"config": data.config, "split": data.split}
     async with safe_http_client(request.app.state.settings) as client:
@@ -148,6 +148,7 @@ async def import_rows(
                 break
     if rows and {data.input_column, data.expected_column} - set(columns):
         raise AppError("unknown_column", "Dataset has no such column", 422)
+    await require(db, Project, id)
     # Serializes imports per project so two runs cannot add the same rows.
     await db.execute(select(Project.id).where(Project.id == id).with_for_update())
     existing = await db.execute(

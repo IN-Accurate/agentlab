@@ -29,9 +29,13 @@ async def target_case(db, trace_id):
     )
     if case is not None:
         return case
-    return await db.scalar(
-        select(TestCase).where(TestCase.source_trace_id == trace_id).limit(1)
+    # Several cases can come from one trace, and guessing could verify the wrong one.
+    matches = list(
+        await db.scalars(
+            select(TestCase).where(TestCase.source_trace_id == trace_id).limit(2)
+        )
     )
+    return matches[0] if len(matches) == 1 else None
 
 
 async def propose_prompt(model, config, target, case):

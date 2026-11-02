@@ -66,7 +66,8 @@ export function Field({ label, error, children }) {
   );
 }
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
+const FOCUSABLE =
+  'a[href], area[href], button, input, select, textarea, summary, audio[controls], video[controls], iframe, [contenteditable], [tabindex]';
 
 export function Modal({ title, onClose, children }) {
   const dialog = useRef(null);
@@ -77,11 +78,19 @@ export function Modal({ title, onClose, children }) {
     return () => previous?.focus?.();
   }, []);
 
-  function keepFocus(event) {
+  function handleKey(event) {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      onClose();
+      return;
+    }
     if (event.key !== 'Tab') return;
     const items = [...dialog.current.querySelectorAll(FOCUSABLE)].filter(
       (item) =>
-        item.tabIndex >= 0 && !item.matches(':disabled') && item.getClientRects().length > 0,
+        item.tabIndex >= 0 &&
+        !item.matches(':disabled') &&
+        item.getClientRects().length > 0 &&
+        getComputedStyle(item).visibility === 'visible',
     );
     if (!items.length) return;
     const first = items[0];
@@ -109,7 +118,7 @@ export function Modal({ title, onClose, children }) {
         aria-modal="true"
         aria-label={title}
         onClick={(event) => event.stopPropagation()}
-        onKeyDown={keepFocus}
+        onKeyDown={handleKey}
       >
         <div className="modal-head">
           <h2>{title}</h2>

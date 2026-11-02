@@ -256,7 +256,7 @@ async def draft_input(model, behavior, background):
     return text
 
 
-async def find_test_case(db, model, project_id, behavior, background):
+async def find_test_case(db, writer, project_id, behavior, background):
     expected = {"behavior": behavior}
     if background:
         expected["context"] = background
@@ -274,7 +274,7 @@ async def find_test_case(db, model, project_id, behavior, background):
         row = TestCase(
             project_id=project_id,
             origin="user",
-            input=await draft_input(model, behavior, background),
+            input=await draft_input(writer, behavior, background),
             expected=expected,
         )
         db.add(row)
@@ -294,7 +294,7 @@ async def run_chat_test(db, context, options, version, model, message):
         options.get("judge_credential_id") or options["credential_id"],
         judge=True,
     )
-    case = await find_test_case(db, model, version.project_id, behavior, background)
+    case = await find_test_case(db, grader, version.project_id, behavior, background)
     config = dict(version.config or {})
     if background:
         parts = [config.get("system_prompt"), f"Context:\n{background}"]

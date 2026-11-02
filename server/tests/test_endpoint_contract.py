@@ -335,3 +335,25 @@ async def test_huggingface_skips_oversized_replies(api, monkeypatch):
         f"/v1/projects/{project}/test-cases/huggingface", json=body
     )
     assert response.json() == {"imported": 1, "skipped": 1}
+
+
+async def test_default_key_is_local_only_without_an_api_key(api):
+    _, app = api
+    settings = app.state.settings
+    settings.meta_base_url = "https://example.com/v1"
+    settings.meta_model = "example-model"
+    settings.meta_api_key = SecretStr("server-side-meta-key")
+    transport = httpx.ASGITransport(app=app, client=("203.0.113.9", 123))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as remote:
+        status = await remote.get("/v1/credentials/default")
+        created = await remote.post("/v1/credentials/default")
+    assert status.json()["available"] is False
+    assert created.status_code == 403
+    assert created.json()["error"]["code"] == "default_credential_forbidden"
+
+    proxied = await api[0].post(
+        "/v1/credentials/default", headers={"X-Forwarded-For": "203.0.113.9"}
+    )
+    assert proxied.status_code == 403

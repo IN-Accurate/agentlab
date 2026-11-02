@@ -72,6 +72,8 @@ async function loadChain(projectId, review) {
       return { repairs, chain: await finishChain(picked, verification, scorecard) };
     }
   }
+  // A requested diagnosis with no repair must not fall back to an unrelated one.
+  if (!picked && review?.diagnosisId) return { repairs, chain: null };
   picked ??= repairs[0];
   const scored = await api(`/v1/verifications?repair_id=${picked.repair.id}&limit=50`);
   const verification = [...(scored.items ?? [])].sort((a, b) =>
@@ -112,7 +114,7 @@ export default function ImprovementsTab({
 
   if (loaded.loading) return <Spinner />;
   if (loaded.error) return <ErrorBox error={loaded.error} onRetry={loaded.reload} />;
-  const { chain } = loaded.data;
+  const { repairs, chain } = loaded.data;
   const repairError = dash.review?.repairError ? (
     <p className="field-error" role="alert">
       Diagnosis saved, but no repair was created: {dash.review.repairError}
@@ -122,13 +124,28 @@ export default function ImprovementsTab({
     return (
       <>
         {repairError}
-        <Empty
-          title="No improvement reviews yet"
-          hint="Diagnose a failed result or trace to propose your first change."
-        />
+        {repairs.length ? (
+          <Empty
+            title="No repair for this diagnosis"
+            hint="This project has earlier repairs you can review."
+            action={
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => patchDash({ review: { repairId: repairs[0].repair.id } })}
+              >
+                Review latest repair
+              </button>
+            }
+          />
+        ) : (
+          <Empty
+            title="No improvement reviews yet"
+            hint="Diagnose a failed result or trace to propose your first change."
+          />
+        )}
       </>
     );
-  const { repairs } = loaded.data;
 
   const { diagnosis, repair, verification, scorecard, candidate, baselineId, diff, lineage } = chain;
   const candLabel = labels[candidate.id] ?? shortId(candidate.id);

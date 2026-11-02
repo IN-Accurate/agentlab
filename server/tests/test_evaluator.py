@@ -30,7 +30,7 @@ from evaluator.agent import (
 from evaluator.diagnosis import Facts, classify, judge
 from evaluator.evaluate import draft_input, latest_version, prior_messages
 from evaluator.llm import ModelClient, ModelError
-from evaluator.repair import score
+from evaluator.repair import score, target_case
 
 CONFIG = {
     "system_prompt": "Answer from policy.",
@@ -801,3 +801,27 @@ def test_prior_messages_keep_empty_turns():
 def test_prior_messages_drop_error_notes_after_blank_lines():
     history = [{"role": "assistant", "content": "\n\nError: failed"}]
     assert prior_messages(history, "hi") == []
+
+
+async def test_ambiguous_source_trace_has_no_target(api, monkeypatch):
+    http, app = api
+    p, v, c = await setup(http, app, monkeypatch, lambda r: completion())
+    async with app.state.sessions() as db, db.begin():
+        db.info["redactor"] = app.state.redactor
+        trace_id = await save_trace(db, UUID(v), "q", AgentResult(output="o"))
+        one = TestCase(
+            project_id=UUID(p), origin="from_trace", input="a", source_trace_id=trace_id
+        )
+        db.add(one)
+        await db.flush()
+        assert (await target_case(db, trace_id)).id == one.id
+        db.add(
+            TestCase(
+                project_id=UUID(p),
+                origin="from_trace",
+                input="b",
+                source_trace_id=trace_id,
+            )
+        )
+        await db.flush()
+        assert await target_case(db, trace_id) is None

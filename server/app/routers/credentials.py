@@ -1,3 +1,4 @@
+from ipaddress import ip_address
 from uuid import UUID
 
 from fastapi import APIRouter, Request, Response
@@ -16,6 +17,22 @@ from app.security import (
 )
 
 router = APIRouter(prefix="/v1/credentials", tags=["Credentials"])
+
+
+FORWARD_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip")
+
+
+def default_allowed(request):
+    """Without an API key guarding /v1, only this machine may spend the key."""
+    if request.app.state.settings.agentlab_api_key:
+        return True
+    # A proxy on this machine connects from loopback on behalf of remote users.
+    if any(name in request.headers for name in FORWARD_HEADERS):
+        return False
+    try:
+        return ip_address(request.client.host).is_loopback
+    except (AttributeError, ValueError):
+        return False
 
 
 def configured_default(settings):
@@ -54,7 +71,7 @@ async def create(data: CredentialCreate, request: Request):
 )
 async def default_status(request: Request):
     settings = request.app.state.settings
-    if not configured_default(settings):
+    if not configured_default(settings) or not default_allowed(request):
         return {"available": False}
     return {
         "available": True,
@@ -73,6 +90,12 @@ async def create_default(request: Request):
     state = request.app.state
     settings = state.settings
     key = configured_default(settings)
+    if key and not default_allowed(request):
+        raise AppError(
+            "default_credential_forbidden",
+            "Set AGENTLAB_API_KEY to use the default key from other machines",
+            403,
+        )
     if not key:
         raise AppError(
             "default_credential_unavailable",
