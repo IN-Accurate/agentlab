@@ -173,6 +173,7 @@ async def test_default_credential_keeps_key_on_server(api, monkeypatch):
     monkeypatch.setattr("app.routers.credentials.validate_url", allow_url)
     client, app = api
     settings = app.state.settings
+    settings.agentlab_unauthenticated_default_key = True
     status = await client.get("/v1/credentials/default")
     assert status.json() == {"available": False, "base_url": None, "model": None}
     missing = await client.post("/v1/credentials/default")
@@ -340,6 +341,7 @@ async def test_huggingface_skips_oversized_replies(api, monkeypatch):
 async def test_default_key_is_local_only_without_an_api_key(api):
     _, app = api
     settings = app.state.settings
+    settings.agentlab_unauthenticated_default_key = True
     settings.meta_base_url = "https://example.com/v1"
     settings.meta_model = "example-model"
     settings.meta_api_key = SecretStr("server-side-meta-key")
@@ -357,3 +359,6 @@ async def test_default_key_is_local_only_without_an_api_key(api):
         "/v1/credentials/default", headers={"X-Forwarded-For": "203.0.113.9"}
     )
     assert proxied.status_code == 403
+    settings.agentlab_unauthenticated_default_key = False
+    local = await api[0].post("/v1/credentials/default")
+    assert local.status_code == 403

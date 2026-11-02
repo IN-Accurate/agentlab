@@ -41,7 +41,7 @@ export default function ConnectForm({ initialEndpoint = '', initialModel = '', o
       const agentEndpoint = useDefault ? defaults.data.base_url : endpoint.trim();
       const agentModel = useDefault ? defaults.data.model : model.trim();
       const agentName = name.trim();
-      const signature = `${agentName}|${useDefault ? 'default' : `${endpoint}|${model}|${apiKey}`}`;
+      const signature = JSON.stringify([agentName, useDefault ? 'default' : [endpoint, model, apiKey]]);
       if (!stash.current || stash.current.signature !== signature)
         stash.current = { signature };
       const s = stash.current;

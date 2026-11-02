@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     app_encryption_key: str | None = None
     cors_origins: str = "http://localhost:3000"
     agentlab_allow_insecure_local: bool = False
+    # Lets callers without AGENTLAB_API_KEY use the default Meta key, from localhost only.
+    agentlab_unauthenticated_default_key: bool = False
     agentlab_api_key: str | None = Field(default=None, exclude=True, repr=False)
     testlab_api_key: str | None = Field(default=None, exclude=True, repr=False)
     meta_api_key: SecretStr | None = None
@@ -32,6 +34,8 @@ class Settings(BaseSettings):
             raise ValueError("Use explicit CORS origins")
         if self.app_env == "production" and not self.app_encryption_key:
             raise ValueError("APP_ENCRYPTION_KEY is required in production")
+        if self.app_env == "production" and self.agentlab_unauthenticated_default_key:
+            raise ValueError("The unauthenticated default key is development-only")
         if self.app_env == "production" and self.agentlab_allow_insecure_local:
             raise ValueError("Insecure localhost URLs are development-only")
         if self.app_env == "production" and not self.agentlab_api_key:

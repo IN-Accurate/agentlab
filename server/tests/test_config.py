@@ -1,4 +1,5 @@
 import httpx
+from cryptography.fernet import Fernet
 import pytest
 from fastapi import BackgroundTasks
 
@@ -135,3 +136,14 @@ def test_old_api_key_name_is_rejected_from_every_input(tmp_path, monkeypatch):
     dotenv.write_text("TESTLAB_API_KEY=old-key-123\n")
     with pytest.raises(ValueError, match="AGENTLAB_API_KEY"):
         Settings(_env_file=dotenv)
+
+
+def test_unauthenticated_default_key_is_development_only():
+    with pytest.raises(ValueError, match="development-only"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            app_encryption_key=Fernet.generate_key().decode(),
+            agentlab_api_key="new-key-123",
+            agentlab_unauthenticated_default_key=True,
+        )

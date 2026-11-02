@@ -24,8 +24,11 @@ FORWARD_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip")
 
 def default_allowed(request):
     """Without an API key guarding /v1, only this machine may spend the key."""
-    if request.app.state.settings.agentlab_api_key:
+    settings = request.app.state.settings
+    if settings.agentlab_api_key:
         return True
+    if not settings.agentlab_unauthenticated_default_key:
+        return False
     # A proxy on this machine connects from loopback on behalf of remote users.
     if any(name in request.headers for name in FORWARD_HEADERS):
         return False
