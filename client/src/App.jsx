@@ -5,6 +5,40 @@ import DashboardView from './dashboard/DashboardView.jsx';
 
 const STORE_KEY = 'agentlab.chats.v1';
 const OLD_STORE_KEY = 'testlab.chats.v1';
+const THEME_KEY = 'agentlab.theme';
+const THEME_OPTIONS = ['light', 'dark', 'system'];
+
+function ThemeIcon({ name }) {
+  const props = {
+    viewBox: '0 0 24 24',
+    width: 16,
+    height: 16,
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2,
+    strokeLinecap: 'round',
+    'aria-hidden': true,
+  };
+  if (name === 'light')
+    return (
+      <svg {...props}>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </svg>
+    );
+  if (name === 'dark')
+    return (
+      <svg {...props}>
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      </svg>
+    );
+  return (
+    <svg {...props}>
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+    </svg>
+  );
+}
 
 function loadChats() {
   try {
@@ -46,6 +80,14 @@ export default function App() {
   const [dash, setDash] = useState({ tab: 'overview', projectId: null });
   const [menuOpen, setMenuOpen] = useState(false);
   const [changingAgent, setChangingAgent] = useState(false);
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem(THEME_KEY);
+      return saved === 'light' || saved === 'dark' ? saved : 'system';
+    } catch {
+      return 'system';
+    }
+  });
 
   useEffect(() => {
     try {
@@ -54,6 +96,22 @@ export default function App() {
       // Private browsing: conversations last for this tab only.
     }
   }, [chats]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      root.dataset.theme = theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
+    };
+    apply();
+    media.addEventListener('change', apply);
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // Private browsing: theme lasts for this tab only.
+    }
+    return () => media.removeEventListener('change', apply);
+  }, [theme]);
 
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
   const lastConnection = chats.find((c) => c.connection)?.connection ?? null;
@@ -175,6 +233,25 @@ export default function App() {
               </span>
             </span>
           </button>
+        </div>
+        <div className="theme-toggle" role="group" aria-label="Color theme">
+          <span
+            className="theme-thumb"
+            aria-hidden="true"
+            style={{ transform: `translateX(${THEME_OPTIONS.indexOf(theme) * 100}%)` }}
+          />
+          {THEME_OPTIONS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={theme === option}
+              aria-label={`${option[0].toUpperCase() + option.slice(1)} theme`}
+              title={`${option[0].toUpperCase() + option.slice(1)} theme`}
+              onClick={() => setTheme(option)}
+            >
+              <ThemeIcon name={option} />
+            </button>
+          ))}
         </div>
       </aside>
       <main className="main">
