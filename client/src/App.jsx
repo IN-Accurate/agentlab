@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { dedupeConnections, upsertAgent } from './agents.js';
 import { RECENT_LIMIT, chatCreatedAt, groupChats, visibleChats } from './chatGroups.js';
 import ChatView from './chat/ChatView.jsx';
 import ConnectForm from './chat/ConnectForm.jsx';
@@ -7,6 +8,7 @@ import LogoMark from './LogoMark.jsx';
 
 const STORE_KEY = 'agentlab.chats.v1';
 const OLD_STORE_KEY = 'testlab.chats.v1';
+const AGENTS_KEY = 'agentlab.agents.v1';
 const THEME_KEY = 'agentlab.theme';
 const GROUP_KEY = 'agentlab.chatGroup';
 const THEME_OPTIONS = ['light', 'dark', 'system'];
@@ -63,6 +65,23 @@ function loadChats() {
   }
 }
 
+function loadAgents() {
+  try {
+    const raw = localStorage.getItem(AGENTS_KEY);
+    if (raw) return dedupeConnections(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+  // Backfill once for profiles stored before agents had their own key.
+  try {
+    const chatsRaw = localStorage.getItem(STORE_KEY) ?? localStorage.getItem(OLD_STORE_KEY);
+    if (!chatsRaw) return [];
+    return dedupeConnections(JSON.parse(chatsRaw).map((c) => c.connection));
+  } catch {
+    return [];
+  }
+}
+
 function newChat(connection) {
   return {
     id: `c${Date.now()}`,
@@ -113,6 +132,14 @@ export default function App() {
 
   useEffect(() => {
     try {
+      localStorage.setItem(AGENTS_KEY, JSON.stringify(agents));
+    } catch {
+      // Private browsing: connections last for this tab only.
+    }
+  }, [agents]);
+
+  useEffect(() => {
+    try {
       localStorage.setItem(GROUP_KEY, groupMode);
     } catch {
       // Private browsing: grouping lasts for this tab only.
@@ -136,11 +163,9 @@ export default function App() {
   }, [theme]);
 
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
-  const lastConnection = chats.find((c) => c.connection)?.connection ?? null;
   // One entry per project, newest first; each keeps the key it connected with.
-  const agents = chats
-    .map((c) => c.connection)
-    .filter((conn, i, all) => conn && all.findIndex((x) => x?.projectId === conn.projectId) === i);
+  const [agents, setAgents] = useState(loadAgents);
+  const lastConnection = agents[0] ?? null;
   const agentKeys = Object.fromEntries(agents.map((a) => [a.projectId, a.credentialId]));
   const chatCredentialId =
     chats.find((c) => c.connection?.projectId === dash.projectId)?.connection
@@ -200,6 +225,7 @@ export default function App() {
   }
 
   function connectAgent(connection) {
+    setAgents((as) => upsertAgent(as, connection));
     const chat = activeChat && !activeChat.connection ? activeChat : newChat(null);
     setChats((cs) => [
       { ...chat, connection },
@@ -211,6 +237,13 @@ export default function App() {
     setChangingAgent(false);
     setView('agents');
     setMenuOpen(false);
+  }
+
+  function disconnectAgent(projectId) {
+    setAgents((as) => as.filter((a) => a.projectId !== projectId));
+    setChats((cs) =>
+      cs.map((c) => (c.connection?.projectId === projectId ? { ...c, connection: null } : c)),
+    );
   }
 
   function openEvidence({ runId, resultId }) {
@@ -406,9 +439,18 @@ export default function App() {
                             <dt>Endpoint</dt>
                             <dd>{agent.endpoint}</dd>
                           </dl>
-                          <button type="button" className="btn-secondary" onClick={() => createChat(agent)}>
-                            New chat with this agent
-                          </button>
+                          <div className="connect-actions">
+                            <button type="button" className="btn-secondary" onClick={() => createChat(agent)}>
+                              New chat with this agent
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => disconnectAgent(agent.projectId)}
+                            >
+                              Disconnect
+                            </button>
+                          </div>
                         </section>
                       </li>
                     ))}
