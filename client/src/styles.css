@@ -76,6 +76,7 @@
 [data-theme='dark'] .card-panel,
 [data-theme='dark'] .modal,
 [data-theme='dark'] .composer,
+[data-theme='dark'] .rail,
 [data-theme='dark'] .rail li button.selected {
   border-color: rgba(250, 209, 15, 0.3);
   box-shadow: 0 0 18px rgba(250, 209, 15, 0.12);
@@ -987,6 +988,10 @@ select.project-select {
   margin: 0;
 }
 
+.improvements .card > .muted {
+  margin-bottom: 0;
+}
+
 .metric-label {
   font-size: 14px;
   color: var(--muted);
@@ -1116,9 +1121,10 @@ select.project-select {
 }
 
 .rail {
-  background: var(--sidebar);
+  background: var(--surface);
+  border: 1px solid var(--accent);
   border-radius: var(--radius-card);
-  padding: 16px;
+  padding: 20px;
 }
 
 .rail h3 {

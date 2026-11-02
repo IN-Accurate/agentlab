@@ -193,19 +193,21 @@ export default function ImprovementsTab({
           )}
         </span>
       </div>
-      <label className="muted">
-        Review{' '}
-        <select
-          value={repair.id}
-          onChange={(e) => patchDash({ review: { repairId: e.target.value } })}
-        >
-          {repairs.map(({ repair: r, diagnosis: d }) => (
-            <option key={r.id} value={r.id}>
-              {r.patch_type} · {d.rule} · {shortId(r.id)}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="card accent-card">
+        <label className="muted">
+          Review{' '}
+          <select
+            value={repair.id}
+            onChange={(e) => patchDash({ review: { repairId: e.target.value } })}
+          >
+            {repairs.map(({ repair: r, diagnosis: d }) => (
+              <option key={r.id} value={r.id}>
+                {r.patch_type} · {d.rule} · {shortId(r.id)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <ol className="progression">
         <li>
           <strong>1 Diagnose</strong>
