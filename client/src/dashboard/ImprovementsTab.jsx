@@ -273,7 +273,7 @@ export default function ImprovementsTab({
               {shortId(scorecard.candidate_run_id ?? verification.candidate_run_id)}
             </span>
           </div>
-          <div className="scroll-x">
+          <div className="scroll-x card-panel">
             <table className="scorecard">
               <tbody>
                 <tr>
