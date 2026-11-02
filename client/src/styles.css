@@ -267,6 +267,7 @@ summary:focus-visible {
 
 .theme-thumb {
   position: absolute;
+  pointer-events: none;
   top: 2px;
   bottom: 2px;
   left: 2px;
@@ -278,6 +279,8 @@ summary:focus-visible {
 
 .theme-toggle button {
   flex: 1;
+  position: relative;
+  z-index: 1;
   width: auto;
   display: flex;
   align-items: center;
