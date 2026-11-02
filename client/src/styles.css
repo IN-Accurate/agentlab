@@ -249,6 +249,113 @@ summary:focus-visible {
   margin: 12px 8px 4px;
 }
 
+.sidebar-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 8px 4px;
+}
+
+.sidebar-heading-row .sidebar-heading {
+  margin: 0;
+}
+
+.sidebar .group-toggle {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.sidebar .group-toggle button {
+  width: auto;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sidebar .group-toggle button[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--selected);
+  font-weight: 600;
+}
+
+.chat-group-heading {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 8px 8px 2px;
+}
+
+.chat-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.chat-row > button:first-child {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.sidebar .chat-del {
+  width: auto;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  opacity: 0.45;
+}
+
+.chat-row:hover .chat-del,
+.sidebar .chat-del:hover,
+.chat-del:focus-visible {
+  opacity: 1;
+}
+
+.chat-del-confirm {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0 2px 8px;
+}
+
+.chat-del-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar .chat-del-confirm button {
+  width: auto;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sidebar .chat-del-yes {
+  color: var(--failure);
+}
+
+.sidebar .see-more {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.sidebar .see-more:hover {
+  color: var(--text);
+}
+
 .sidebar-divider {
   border: none;
   border-top: 1px solid var(--border);

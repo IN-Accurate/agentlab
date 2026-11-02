@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { RECENT_LIMIT, chatCreatedAt, groupChats, visibleChats } from './chatGroups.js';
 import ChatView from './chat/ChatView.jsx';
 import ConnectForm from './chat/ConnectForm.jsx';
 import DashboardView from './dashboard/DashboardView.jsx';
@@ -6,6 +7,7 @@ import DashboardView from './dashboard/DashboardView.jsx';
 const STORE_KEY = 'agentlab.chats.v1';
 const OLD_STORE_KEY = 'testlab.chats.v1';
 const THEME_KEY = 'agentlab.theme';
+const GROUP_KEY = 'agentlab.chatGroup';
 const THEME_OPTIONS = ['light', 'dark', 'system'];
 
 function ThemeIcon({ name }) {
@@ -46,6 +48,7 @@ function loadChats() {
     if (!raw) return [];
     return JSON.parse(raw).map((c) => ({
       ...c,
+      createdAt: chatCreatedAt(c),
       streaming: false,
       messages: (c.messages ?? []).map((m) => ({
         ...m,
@@ -62,6 +65,7 @@ function loadChats() {
 function newChat(connection) {
   return {
     id: `c${Date.now()}`,
+    createdAt: Date.now(),
     title: 'New chat',
     titleSet: false,
     connection: connection ? { ...connection, ownProject: false } : null,
@@ -80,6 +84,15 @@ export default function App() {
   const [dash, setDash] = useState({ tab: 'overview', projectId: null });
   const [menuOpen, setMenuOpen] = useState(false);
   const [changingAgent, setChangingAgent] = useState(false);
+  const [chatsExpanded, setChatsExpanded] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [groupMode, setGroupMode] = useState(() => {
+    try {
+      return localStorage.getItem(GROUP_KEY) === 'agent' ? 'agent' : 'date';
+    } catch {
+      return 'date';
+    }
+  });
   const [theme, setTheme] = useState(() => {
     try {
       const saved = localStorage.getItem(THEME_KEY);
@@ -96,6 +109,14 @@ export default function App() {
       // Private browsing: conversations last for this tab only.
     }
   }, [chats]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(GROUP_KEY, groupMode);
+    } catch {
+      // Private browsing: grouping lasts for this tab only.
+    }
+  }, [groupMode]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -127,6 +148,7 @@ export default function App() {
     setActiveId(id);
     setView('chat');
     setMenuOpen(false);
+    setPendingDelete(null);
   }
 
   function createChat() {
@@ -135,10 +157,27 @@ export default function App() {
     setActiveId(chat.id);
     setView('chat');
     setMenuOpen(false);
+    setPendingDelete(null);
   }
 
   function patchChat(id, fn) {
     setChats((cs) => cs.map((c) => (c.id === id ? fn(c) : c)));
+  }
+
+  function deleteChat(id) {
+    // Removes the local conversation only; traces, tests and projects
+    // are evidence and stay.
+    const next = chats.filter((c) => c.id !== id);
+    if (next.length) {
+      setChats(next);
+    } else {
+      // Never strand the app with zero chats: with no active chat the
+      // main area falls through to the dashboard.
+      const fresh = newChat(null);
+      setChats([fresh]);
+      setActiveId(fresh.id);
+    }
+    setPendingDelete(null);
   }
 
   function openAgentManager() {
@@ -176,6 +215,8 @@ export default function App() {
     else createChat();
   }
 
+  const groups = groupChats(visibleChats(chats, chatsExpanded), groupMode);
+
   return (
     <div className="app">
       <button
@@ -192,21 +233,85 @@ export default function App() {
           <span aria-hidden="true">＋</span> New chat
         </button>
         <nav aria-label="Recent chats">
-          <p className="sidebar-heading">Recent chats</p>
-          <ul>
-            {chats.map((c) => (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  className={view === 'chat' && activeChat?.id === c.id ? 'selected' : ''}
-                  onClick={() => openChat(c.id)}
-                  title={c.title}
-                >
-                  {c.title}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="sidebar-heading-row">
+            <p className="sidebar-heading">Recent chats</p>
+            <div className="group-toggle" role="group" aria-label="Group chats by">
+              <button
+                type="button"
+                aria-pressed={groupMode === 'date'}
+                onClick={() => setGroupMode('date')}
+              >
+                Date
+              </button>
+              <button
+                type="button"
+                aria-pressed={groupMode === 'agent'}
+                onClick={() => setGroupMode('agent')}
+              >
+                Agent
+              </button>
+            </div>
+          </div>
+          {groups.map((group) => (
+            <div key={group.key} className="chat-group">
+              <p className="chat-group-heading">{group.label}</p>
+              <ul>
+                {group.chats.map((c) => (
+                  <li key={c.id} className="chat-row">
+                    {pendingDelete === c.id ? (
+                      <span
+                        className="chat-del-confirm"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setPendingDelete(null);
+                        }}
+                      >
+                        <span className="chat-del-text">Delete this chat?</span>
+                        <button type="button" className="chat-del-yes" autoFocus onClick={() => deleteChat(c.id)}>
+                          Delete
+                        </button>
+                        <button type="button" onClick={() => setPendingDelete(null)}>
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className={view === 'chat' && activeChat?.id === c.id ? 'selected' : ''}
+                          onClick={() => openChat(c.id)}
+                          title={c.title}
+                        >
+                          {c.title}
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-del"
+                          aria-label={`Delete ${c.title}`}
+                          title="Delete chat"
+                          onClick={() => setPendingDelete(c.id)}
+                        >
+                          <span aria-hidden="true">×</span>
+                        </button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          {chats.length > RECENT_LIMIT && (
+            <button
+              type="button"
+              className="see-more"
+              aria-expanded={chatsExpanded}
+              onClick={() => {
+                setChatsExpanded((v) => !v);
+                setPendingDelete(null);
+              }}
+            >
+              {chatsExpanded ? 'Show less' : `See more (${chats.length - RECENT_LIMIT} more)`}
+            </button>
+          )}
         </nav>
         <hr className="sidebar-divider" />
         <button
