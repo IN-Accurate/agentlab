@@ -146,7 +146,7 @@ Registered keys, Bearer values and key query fields are redacted. User URLs must
 | HUGGINGFACE_RATE_LIMIT |10 Hugging Face previews and imports per peer IP per minute |
 | TEST_DATABASE_URL | Tests only; disposable database name must contain test |
 | AGENTLAB_API_KEY | Unset leaves /v1 open for local development; when set, every /v1 route requires a matching X-Api-Key header |
-| META_API_KEY, META_BASE_URL, META_MODEL | Optional default Meta key. When all three are set, POST `/v1/credentials/default` stores a normal temporary credential from them; the key is never returned. With AGENTLAB_API_KEY, anyone holding that key can use it. Without it, set AGENTLAB_UNAUTHENTICATED_DEFAULT_KEY=true (development only) to allow direct localhost callers |
+| META_API_KEY, META_BASE_URL, META_MODEL | Optional default Meta key. When all three are set, POST `/v1/credentials/default` stores a normal temporary credential from them; the key is never returned. With AGENTLAB_API_KEY, anyone holding that key can use it. Without it, set AGENTLAB_UNAUTHENTICATED_DEFAULT_KEY=true (development only) to allow direct localhost callers. A request is local only when both the client address and the Host header are loopback and no forwarding header is present |
 
 No Redis, AGENTLAB_FAKE_LLM, provider referer/title settings or model execution options are used by this API. Provider settings belong to the separately supplied evaluator. The server does not automatically read .env: use Uvicorn --env-file. Existing shell variables take precedence over dotenv loading. Clear an obsolete shell DATABASE_URL before switching to a .env connection.
 

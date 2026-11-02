@@ -172,6 +172,7 @@ async def test_default_credential_keeps_key_on_server(api, monkeypatch):
 
     monkeypatch.setattr("app.routers.credentials.validate_url", allow_url)
     client, app = api
+    client.headers["host"] = "localhost:8000"
     settings = app.state.settings
     settings.agentlab_unauthenticated_default_key = True
     status = await client.get("/v1/credentials/default")
@@ -359,6 +360,14 @@ async def test_default_key_is_local_only_without_an_api_key(api):
         "/v1/credentials/default", headers={"X-Forwarded-For": "203.0.113.9"}
     )
     assert proxied.status_code == 403
+    public = await api[0].post(
+        "/v1/credentials/default", headers={"Host": "agentlab.example.com"}
+    )
+    assert public.status_code == 403
+    allowed = await api[0].get(
+        "/v1/credentials/default", headers={"Host": "127.0.0.1:8000"}
+    )
+    assert allowed.json()["available"] is True
     settings.agentlab_unauthenticated_default_key = False
     local = await api[0].post("/v1/credentials/default")
     assert local.status_code == 403

@@ -22,6 +22,15 @@ router = APIRouter(prefix="/v1/credentials", tags=["Credentials"])
 FORWARD_HEADERS = ("forwarded", "x-forwarded-for", "x-real-ip")
 
 
+def is_loopback(host):
+    if host == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except (TypeError, ValueError):
+        return False
+
+
 def default_allowed(request):
     """Without an API key guarding /v1, only this machine may spend the key."""
     settings = request.app.state.settings
@@ -32,10 +41,11 @@ def default_allowed(request):
     # A proxy on this machine connects from loopback on behalf of remote users.
     if any(name in request.headers for name in FORWARD_HEADERS):
         return False
-    try:
-        return ip_address(request.client.host).is_loopback
-    except (AttributeError, ValueError):
+    # Both ends must be this machine; a proxy that strips forwarding headers
+    # still passes on the public Host the remote user asked for.
+    if "host" not in request.headers or not is_loopback(request.url.hostname):
         return False
+    return is_loopback(getattr(request.client, "host", None))
 
 
 def configured_default(settings):
