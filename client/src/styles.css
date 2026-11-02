@@ -19,6 +19,12 @@
   --radius: 8px;
   --radius-card: 16px;
   --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Montserrat', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --logo-grad-start: #7b818b;
+  --logo-grad-end: #2b2f36;
+  --logo-size: 30px;
+  --logo-gap: 10px;
+  --sidebar-inset: 12px;
 }
 
 [data-theme='light'] {
@@ -43,6 +49,26 @@
   --success: #4ade80;
   --backdrop: rgba(0, 0, 0, 0.6);
   --shadow: 0 0 24px rgba(0, 0, 0, 0.6);
+  --logo-grad-start: #ffffff;
+  --logo-grad-end: #b4b9c2;
+}
+
+@font-face {
+  font-family: 'Montserrat';
+  src: url('/fonts/montserrat-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/inter-latin.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /* Dark-mode card glow: gold edge + halo on card surfaces. Light mode untouched. */
@@ -99,6 +125,25 @@ h3 {
   margin: 20px 0 8px;
 }
 
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.empty-title,
+.result-head,
+.info-card .info-title {
+  font-family: var(--font-heading);
+}
+
+.metric-value,
+.results-table,
+.bars,
+.chart .axis {
+  font-feature-settings: 'tnum';
+}
+
 button,
 input,
 select,
@@ -151,7 +196,7 @@ summary:focus-visible {
   flex-shrink: 0;
   background: var(--sidebar);
   border-right: 1px solid var(--border);
-  padding: 16px 12px;
+  padding: 16px var(--sidebar-inset);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -203,10 +248,25 @@ summary:focus-visible {
   50% { opacity: 0.35; }
 }
 
-.brand {
+.brand-link {
+  display: flex;
+  align-items: center;
+  gap: var(--logo-gap);
+  padding: 4px 8px 12px;
+  padding-left: calc(var(--sidebar-inset) + 8px);
+  font-family: var(--font-heading);
   font-weight: 700;
   font-size: 18px;
-  padding: 4px 8px 12px;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: var(--radius);
+}
+
+.logo-mark {
+  height: var(--logo-size);
+  width: auto;
+  flex-shrink: 0;
 }
 
 .sidebar button {
@@ -461,6 +521,12 @@ summary:focus-visible {
   cursor: pointer;
 }
 
+.btn-accent {
+  background: var(--accent);
+  color: var(--primary-text);
+  border-color: transparent;
+}
+
 .btn-ghost {
   background: transparent;
   border: none;
@@ -629,6 +695,7 @@ select.project-select {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
 
 .modal-head h2 {

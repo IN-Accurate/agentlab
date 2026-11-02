@@ -3,6 +3,7 @@ import { RECENT_LIMIT, chatCreatedAt, groupChats, visibleChats } from './chatGro
 import ChatView from './chat/ChatView.jsx';
 import ConnectForm from './chat/ConnectForm.jsx';
 import DashboardView from './dashboard/DashboardView.jsx';
+import LogoMark from './LogoMark.jsx';
 
 const STORE_KEY = 'agentlab.chats.v1';
 const OLD_STORE_KEY = 'testlab.chats.v1';
@@ -144,6 +145,13 @@ export default function App() {
     setDash((d) => ({ ...d, ...patch }));
   }, []);
 
+  function goHome(event) {
+    event.preventDefault();
+    setActiveId(null);
+    setView('chat');
+    setMenuOpen(false);
+  }
+
   function openChat(id) {
     setActiveId(id);
     setView('chat');
@@ -228,7 +236,10 @@ export default function App() {
         ☰
       </button>
       <aside className={`sidebar${menuOpen ? ' open' : ''}`}>
-        <div className="brand">AgentLab</div>
+        <a className="brand-link" href="#/" onClick={goHome}>
+          <LogoMark />
+          <span>AgentLab</span>
+        </a>
         <button type="button" className="new-chat" onClick={createChat}>
           <span aria-hidden="true">＋</span> New chat
         </button>

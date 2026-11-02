@@ -40,11 +40,14 @@ All data comes from the FastAPI backend — there are no baked-in fixtures, so a
 
 ```
 client/
-├── index.html            # Entry HTML (Inter via Google Fonts, system fallback)
+├── index.html            # Entry HTML (preload for self-hosted Montserrat)
 ├── vite.config.js        # Dev proxy for /v1 → localhost:8000
+├── public/fonts/         # Self-hosted Inter + Montserrat variable woff2, OFL texts
 └── src/
     ├── main.jsx          # React root
     ├── App.jsx           # Sidebar shell, chat/dashboard routing, persistence
+    ├── LogoMark.jsx      # Inline sidebar logo (mirrors assets/logo-mark.svg)
+    ├── assets/           # logo-mark.svg source of truth
     ├── api.js            # fetch wrapper, SSE chat client, job polling
     ├── hooks.js          # useFetch (loading/error/retry)
     ├── ui.jsx            # Badges, empty/error states, fields, modal, formatters
