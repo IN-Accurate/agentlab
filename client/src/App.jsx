@@ -153,7 +153,7 @@ export default function App() {
   function goHome(event) {
     event.preventDefault();
     setActiveId(null);
-    setView('chat');
+    setView('dashboard');
     setMenuOpen(false);
   }
 
