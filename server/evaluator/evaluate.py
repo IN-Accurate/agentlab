@@ -19,6 +19,7 @@ from app.models import (
 )
 from evaluator.agent import AgentResult, check, run_agent, save_trace
 from evaluator.llm import ModelClient, ModelError
+from evaluator.team import runner
 
 RUN_PREFIX = "Run test: "
 CONTEXT_MARK = "\n\nAdditional context:\n"
@@ -94,9 +95,12 @@ async def grade_assertion(grader, query, output, assertion):
     return passed, f"{spec.get('type')} {'passed' if passed else 'failed'}"
 
 
-async def evaluate_case(model, grader, config, case, params=None):
+async def evaluate_case(model, grader, config, case, params=None, team=None):
     query, expected = case["input"], case.get("expected") or {}
-    result = await run_agent(model, config, query, params)
+    if team:
+        result = await team.run(query, params)
+    else:
+        result = await run_agent(model, config, query, params)
     outcome = Outcome(result)
     reason = failure_reason(result)
     notes = [reason] if reason else []
@@ -164,6 +168,7 @@ async def run_version(context, options, version, cases, params, progress=None):
         context, options.get("judge_credential_id") or credential, judge=True
     )
     version_id = UUID(str(version["id"]))
+    team = await runner(context, options, config, model, version["project_id"])
     # The run commits first so each result can commit on its own and show up
     # in the dashboard while the job is still going.
     async with context["session_factory"]() as db, db.begin():
@@ -173,7 +178,7 @@ async def run_version(context, options, version, cases, params, progress=None):
         run_id = run.id
     results = {}
     for index, case in enumerate(cases, start=1):
-        outcome = await evaluate_case(model, grader, config, case, params)
+        outcome = await evaluate_case(model, grader, config, case, params, team)
         async with context["session_factory"]() as db, db.begin():
             await save_result(db, version_id, run_id, case, outcome)
         results[str(case["id"])] = outcome.passed
@@ -301,7 +306,8 @@ async def run_chat_test(db, context, options, version, model, message):
     if background:
         parts = [config.get("system_prompt"), f"Context:\n{background}"]
         config["system_prompt"] = "\n\n".join(part for part in parts if part)
-    outcome = await evaluate_case(model, grader, config, case)
+    team = await runner(context, options, config, model, version.project_id)
+    outcome = await evaluate_case(model, grader, config, case, team=team)
     run = Run(app_version_id=version.id, params={}, model=model.model)
     db.add(run)
     await db.flush()
@@ -333,7 +339,16 @@ async def stream_chat(payload, context):
         yield {"event": "done", "data": {}}
         return
     history = prior_messages(options.get("history") or [], message)
-    result = await run_agent(model, config, message, history=history)
+    team = await runner(context, options, config, model, version.project_id)
+    if team:
+        result = await team.run(message, history=history)
+        decision = result.spans[0]["payload"]
+        yield {
+            "event": "step.finished",
+            "data": {"step": f"Routed to {decision['choice']}", "route": decision},
+        }
+    else:
+        result = await run_agent(model, config, message, history=history)
     await save_trace(db, version.id, message, result)
     reason = failure_reason(result)
     if reason:

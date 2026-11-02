@@ -23,11 +23,50 @@ STOPWORDS = set(
 )
 
 
+LIMIT_MESSAGES = {
+    "step_limit": "Stopped at the team's step limit",
+    "spend_limit": "Stopped at the team's token limit",
+}
+
+
 @dataclass
 class AgentResult:
     output: str = ""
     status: str = "ok"
     spans: list = field(default_factory=list)
+
+
+@dataclass
+class Budget:
+    """Model calls and tokens shared by every agent in one team request."""
+
+    max_steps: int
+    max_tokens: int | None = None
+    steps: int = 0
+    tokens: int = 0
+
+    def charge(self):
+        """Counts one model call, or returns the limit that blocks it."""
+        if self.steps >= self.max_steps:
+            return "step_limit"
+        if self.max_tokens is not None and self.tokens >= self.max_tokens:
+            return "spend_limit"
+        self.steps += 1
+        return None
+
+    def record(self, messages, reply):
+        # Providers may omit usage; about four characters per token is the
+        # usual estimate, so the limit still holds.
+        used = (reply.usage or {}).get("total_tokens")
+        if not isinstance(used, int):
+            text = json.dumps(messages, default=str) + reply.text
+            used = len(text) // 4
+        self.tokens += used
+
+
+def limit_span(kind):
+    error = {"kind": kind, "message": LIMIT_MESSAGES[kind]}
+    return span("llm", status="error", payload={"error": error})
 
 
 def clip(value, limit=MAX_TEXT):
@@ -183,7 +222,7 @@ def validate(config, output):
     return spans
 
 
-async def run_agent(model, config, query, params=None, history=None):
+async def run_agent(model, config, query, params=None, history=None, budget=None):
     agent = config.get("agent") or {}
     result = AgentResult()
     chunks = []
@@ -201,6 +240,11 @@ async def run_agent(model, config, query, params=None, history=None):
     schemas = [tool["schema"] for tool in tools.values()]
     params = {**(config.get("params") or {}), **(params or {})}
     for _ in range(MAX_STEPS):
+        limit = budget.charge() if budget else None
+        if limit:
+            result.status = "error"
+            result.spans.append(limit_span(limit))
+            return result
         started = monotonic()
         try:
             reply = await model.complete(messages, schemas, params)
@@ -210,6 +254,8 @@ async def run_agent(model, config, query, params=None, history=None):
             result.status = "error"
             result.spans.append(span("llm", started, "error", payload))
             return result
+        if budget:
+            budget.record(messages, reply)
         payload = {
             "model": reply.model or model.model,
             "input": clip(json.dumps(messages, default=str)),
@@ -254,9 +300,17 @@ async def save_trace(db, version_id, query, result):
     db.add(trace)
     await db.flush()
     chunks = []
-    for item in result.spans[:MAX_SPANS]:
-        values = {key: value for key, value in item.items() if key != "chunks"}
-        row = Span(id=uuid4(), trace_id=trace.id, **values)
+    kept = result.spans[:MAX_SPANS]
+    # Parents come before their children in the list, so they insert first.
+    ids = {item["sdk_span_id"]: uuid4() for item in kept}
+    for item in kept:
+        values = {k: v for k, v in item.items() if k not in {"chunks", "parent"}}
+        row = Span(
+            id=ids[item["sdk_span_id"]],
+            trace_id=trace.id,
+            parent_span_id=ids.get(item.get("parent")),
+            **values,
+        )
         db.add(row)
         chunks += [RetrievedChunk(span_id=row.id, **chunk) for chunk in item["chunks"]]
     # No relationships are declared, so spans must reach the database first.
