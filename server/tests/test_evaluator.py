@@ -825,3 +825,38 @@ async def test_ambiguous_source_trace_has_no_target(api, monkeypatch):
         )
         await db.flush()
         assert await target_case(db, trace_id) is None
+
+
+async def test_repair_rejects_a_trace_with_several_tests(api, monkeypatch):
+    http, app = api
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return completion()
+
+    p, v, c = await setup(http, app, monkeypatch, handler)
+    async with app.state.sessions() as db, db.begin():
+        db.info["redactor"] = app.state.redactor
+        trace_id = await save_trace(db, UUID(v), "q", AgentResult(output="o"))
+        for split in ("dev", "holdout"):
+            db.add(
+                TestCase(
+                    project_id=UUID(p),
+                    origin="from_trace",
+                    input=split,
+                    split=split,
+                    source_trace_id=trace_id,
+                )
+            )
+    diagnosis = await http.post(
+        f"/v1/traces/{trace_id}/diagnose", json={"credential_id": c}
+    )
+    assert diagnosis.status_code == 200, diagnosis.text
+    calls.clear()
+    response = await http.post(
+        f"/v1/diagnoses/{diagnosis.json()['id']}/repairs", json={"credential_id": c}
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "ambiguous_target"
+    assert calls == []

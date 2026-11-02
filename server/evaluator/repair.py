@@ -19,7 +19,8 @@ REPAIR_PROMPT = (
 VERIFY_PARAMS = {"temperature": 0}
 
 
-async def target_case(db, trace_id):
+async def trace_cases(db, trace_id):
+    """The run's own case, or up to two cases derived from the trace."""
     trace_id = UUID(str(trace_id))
     case = await db.scalar(
         select(TestCase)
@@ -28,14 +29,18 @@ async def target_case(db, trace_id):
         .limit(1)
     )
     if case is not None:
-        return case
-    # Several cases can come from one trace, and guessing could verify the wrong one.
-    matches = list(
+        return [case]
+    return list(
         await db.scalars(
             select(TestCase).where(TestCase.source_trace_id == trace_id).limit(2)
         )
     )
-    return matches[0] if len(matches) == 1 else None
+
+
+async def target_case(db, trace_id):
+    # Several cases can come from one trace, and guessing could verify the wrong one.
+    cases = await trace_cases(db, trace_id)
+    return cases[0] if len(cases) == 1 else None
 
 
 async def propose_prompt(model, config, target, case):
@@ -70,7 +75,15 @@ async def run_repair(payload, context):
     target, options, version = payload["target"], payload["options"], payload["version"]
     db = context["session"]
     config = version.get("config") or {}
-    case = await target_case(db, target["trace"]["id"])
+    cases = await trace_cases(db, target["trace"]["id"])
+    # Rejected before any model call; one of the cases could also be a holdout.
+    if len(cases) > 1:
+        raise AppError(
+            "ambiguous_target",
+            "Several tests come from this trace, so the repair has no single target",
+            422,
+        )
+    case = cases[0] if cases else None
     if case is not None and case.split == "holdout":
         raise AppError("holdout_target", "Holdout results cannot generate repairs", 422)
     patch, rationale = options.get("patch"), None
