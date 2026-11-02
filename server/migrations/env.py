@@ -1,7 +1,7 @@
 import asyncio
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import DDL, pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import Settings
@@ -43,13 +43,23 @@ async def run_async_migrations():
 
 
 if context.is_offline_mode():
+    schema = context.get_x_argument(as_dictionary=True).get("schema")
     context.configure(
         dialect_name="postgresql",
         target_metadata=target_metadata,
+        version_table_schema=schema,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
     with context.begin_transaction():
+        if schema:
+            quoted = context.get_context().dialect.identifier_preparer.quote_schema(
+                schema
+            )
+            # DDL preserves colons in identifiers; escape its percent interpolation.
+            context.execute(
+                DDL("SET LOCAL search_path TO " + quoted.replace("%", "%%"))
+            )
         context.run_migrations()
 else:
     connection = config.attributes.get("connection")

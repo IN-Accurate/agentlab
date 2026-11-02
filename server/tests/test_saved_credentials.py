@@ -150,6 +150,70 @@ async def test_saved_expiry_uses_persisted_clock_after_restart(durable_apps):
     assert restarted.state.credential_store.get(identifier) is None
 
 
+@pytest.mark.parametrize("trigger", ["startup", "create"])
+async def test_expired_saved_rows_are_purged_without_changing_live_keys(
+    durable_apps, monkeypatch, trigger
+):
+    client, app = await durable_apps()
+    raw = "expired-provider-key-without-prefix"
+    expired = await create_key(client, raw)
+    live = await create_key(client, "live-provider-key-without-prefix")
+    cutoff = datetime.now(UTC)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cutoff
+
+    monkeypatch.setattr("app.services.credentials.datetime", Clock)
+    async with app.state.sessions() as db, db.begin():
+        await db.execute(
+            update(SavedCredential.__table__)
+            .where(SavedCredential.id == UUID(expired))
+            .values(expires_at=cutoff)
+        )
+        before = (await db.execute(select(SavedCredential.__table__))).mappings().all()
+    live_before = next(row for row in before if str(row["id"]) == live)
+    expired_ciphertext = next(
+        row["ciphertext"] for row in before if str(row["id"]) == expired
+    )
+
+    if trigger == "startup":
+        client, app = await durable_apps()
+    else:
+        await create_key(client, "new-provider-key-without-prefix")
+
+    async with app.state.sessions() as db:
+        after = (await db.execute(select(SavedCredential.__table__))).mappings().all()
+    assert expired not in {str(row["id"]) for row in after}
+    assert expired_ciphertext not in repr(after)
+    assert next(row for row in after if str(row["id"]) == live) == live_before
+    assert app.state.credential_store.get(expired) is None
+    assert app.state.redactor.text(raw) == raw
+    assert (await client.get(f"/v1/credentials/{expired}")).status_code == 404
+    assert (await client.get(f"/v1/credentials/{live}")).status_code == 200
+
+
+async def test_expired_row_purge_preserves_inflight_redaction(durable_apps):
+    client, app = await durable_apps()
+    raw = "inflight-expired-provider-key-without-prefix"
+    identifier = await create_key(client, raw)
+    hydrated = await scope(app.state, {identifier})
+    try:
+        async with app.state.sessions() as db, db.begin():
+            await db.execute(
+                update(SavedCredential.__table__)
+                .where(SavedCredential.id == UUID(identifier))
+                .values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+            )
+        await create_key(client, "another-live-provider-key")
+        assert app.state.credential_store.get(identifier) is None
+        assert app.state.redactor.text(raw) == "[REDACTED]"
+    finally:
+        release(hydrated)
+    assert app.state.redactor.text(raw) == raw
+
+
 async def test_wrong_saved_key_returns_sanitized_error(durable_apps):
     first, _ = await durable_apps()
     raw = "nonstandard-sensitive-provider-key"

@@ -85,6 +85,79 @@ def test_migration_chain_and_offline_upgrade():
     assert "idx_saved_credentials_expires_at" in sql
     assert "'router', 'agent'" in sql
     assert "COMMIT;" in sql
+    assert "SET LOCAL search_path" not in sql
+    assert "CREATE TABLE alembic_version" in sql
+
+
+@pytest.mark.parametrize("suffix", ["plain", 'odd";colon:%'])
+async def test_offline_upgrade_executes_in_only_the_requested_schema(
+    migration_database, suffix
+):
+    async with migration_database.engine.connect() as connection:
+        target = "test_offline_" + uuid4().hex + "_" + suffix
+        default = "test_offline_default_" + uuid4().hex
+        reference = "test_offline_reference_" + uuid4().hex
+        schemas = (target, default, reference)
+        quote = connection.dialect.identifier_preparer.quote_schema
+        try:
+            for schema in schemas:
+                await connection.exec_driver_sql(f"CREATE SCHEMA {quote(schema)}")
+            await connection.exec_driver_sql(f"SET search_path TO {quote(default)}")
+            await connection.commit()
+
+            config = migration_config(schema=target)
+            output = io.StringIO()
+            config.output_buffer = output
+            command.upgrade(config, "head", sql=True)
+            sql = output.getvalue()
+            assert f"SET LOCAL search_path TO {quote(target)};" in sql
+            assert f"CREATE TABLE {quote(target)}.alembic_version" in sql
+            assert sql.index("BEGIN;") < sql.index("SET LOCAL search_path")
+            assert sql.index("SET LOCAL search_path") < sql.index(
+                "CREATE TABLE projects"
+            )
+
+            # Execute the exact rendered script, including its BEGIN/COMMIT, on
+            # an idle connection so its transaction and SET LOCAL are exercised.
+            raw = await connection.get_raw_connection()
+            await raw.driver_connection.execute(sql)
+            assert await connection.scalar(text("SELECT current_schema()")) == default
+            default_tables = await connection.run_sync(
+                lambda sync: inspect(sync).get_table_names(schema=default)
+            )
+            assert default_tables == []
+            assert (await connection.run_sync(schema_snapshot, default))[
+                "functions"
+            ] == []
+            assert (
+                await connection.scalar(
+                    text(f"SELECT version_num FROM {quote(target)}.alembic_version")
+                )
+                == HEAD_REVISION
+            )
+
+            await upgrade(connection, reference)
+            await connection.exec_driver_sql(
+                f"SET LOCAL search_path TO {quote(target)}"
+            )
+            offline = await connection.run_sync(schema_snapshot, target)
+            await connection.exec_driver_sql(
+                f"SET LOCAL search_path TO {quote(reference)}"
+            )
+            online = await connection.run_sync(schema_snapshot, reference)
+            assert offline["tables"] == online["tables"]
+            assert offline["views"] == online["views"]
+            for kind in ("triggers", "functions"):
+                assert [row[0] for row in offline[kind]] == [
+                    row[0] for row in online[kind]
+                ]
+        finally:
+            await connection.rollback()
+            for schema in schemas:
+                await connection.exec_driver_sql(
+                    f"DROP SCHEMA IF EXISTS {quote(schema)} CASCADE"
+                )
+            await connection.commit()
 
 
 async def test_fresh_migrations_match_canonical_sql(migration_database):

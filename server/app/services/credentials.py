@@ -69,15 +69,28 @@ class SavedCredentials:
             "expires_at": row["expires_at"].isoformat(),
         }
 
+    async def purge_expired(self, db, cutoff):
+        identifiers = await db.scalars(
+            delete(SavedCredential.__table__)
+            .where(SavedCredential.expires_at <= cutoff)
+            .returning(SavedCredential.id)
+        )
+        return list(identifiers)
+
     async def restore(self):
-        async with self.state.sessions() as db:
+        cutoff = datetime.now(UTC)
+        async with self.state.sessions() as db, db.begin():
+            expired = await self.purge_expired(db, cutoff)
             rows = await db.execute(
                 select(SavedCredential.__table__).where(
-                    SavedCredential.expires_at > datetime.now(UTC)
+                    SavedCredential.expires_at > cutoff
                 )
             )
-            for row in rows.mappings():
-                self.cache(self.value(row))
+            values = [self.value(row) for row in rows.mappings()]
+        for identifier in expired:
+            self.state.credential_store.delete(str(identifier))
+        for value in values:
+            self.cache(value)
 
     async def create(self, data):
         # The public helper validates/encrypts the key and registers its fingerprint.
@@ -93,10 +106,13 @@ class SavedCredentials:
         columns["expires_at"] = datetime.fromisoformat(columns["expires_at"])
         try:
             async with self.state.sessions() as db, db.begin():
+                expired = await self.purge_expired(db, datetime.now(UTC))
                 # Core insert bypasses redaction of encrypted storage fields.
                 await db.execute(insert(SavedCredential.__table__).values(**columns))
         finally:
             temporary.delete(identifier)
+        for expired_id in expired:
+            self.state.credential_store.delete(str(expired_id))
         self.cache(value)
         return credential_metadata(identifier, self.state.credential_store)
 
