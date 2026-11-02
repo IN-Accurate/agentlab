@@ -6,7 +6,7 @@ from uuid import uuid4
 from alembic import command
 from alembic.script import ScriptDirectory
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import event, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -15,6 +15,7 @@ from app.config import Settings
 from migrations.adopt import (
     BASELINE_REVISION,
     HEAD_REVISION,
+    SAVED_CREDENTIALS_REVISION,
     adopt_existing,
     migration_config,
 )
@@ -67,7 +68,13 @@ def test_migration_chain_and_offline_upgrade():
     config = migration_config()
     script = ScriptDirectory.from_config(config)
     assert script.get_heads() == [HEAD_REVISION]
-    assert script.get_revision(HEAD_REVISION).down_revision == BASELINE_REVISION
+    assert (
+        script.get_revision(HEAD_REVISION).down_revision == SAVED_CREDENTIALS_REVISION
+    )
+    assert (
+        script.get_revision(SAVED_CREDENTIALS_REVISION).down_revision
+        == BASELINE_REVISION
+    )
     output = io.StringIO()
     config.output_buffer = output
     command.upgrade(config, "head", sql=True)
@@ -76,6 +83,7 @@ def test_migration_chain_and_offline_upgrade():
     assert "CREATE TRIGGER no_app_version_update" in sql
     assert "CREATE TABLE saved_credentials" in sql
     assert "idx_saved_credentials_expires_at" in sql
+    assert "'router', 'agent'" in sql
     assert "COMMIT;" in sql
 
 
@@ -180,4 +188,239 @@ async def test_credential_downgrade_preserves_baseline(migration_database):
     )
     assert "saved_credentials" not in tables
     assert await connection.scalar(text("SELECT name FROM projects")) == "Keep this"
+    await upgrade(connection, schema)
+
+
+async def seed_spans(connection, kinds):
+    project, version, trace = uuid4(), uuid4(), uuid4()
+    await connection.execute(
+        text("INSERT INTO projects(id, name) VALUES (:id, 'Existing team')"),
+        {"id": project},
+    )
+    await connection.execute(
+        text("INSERT INTO app_versions(id, project_id) VALUES (:id, :project)"),
+        {"id": version, "project": project},
+    )
+    await connection.execute(
+        text("INSERT INTO traces(id, app_version_id) VALUES (:id, :version)"),
+        {"id": trace, "version": version},
+    )
+    parent = None
+    for index, kind in enumerate(kinds):
+        identifier = uuid4()
+        await connection.execute(
+            text(
+                "INSERT INTO spans(id, trace_id, parent_span_id, sdk_span_id, type) "
+                "VALUES (:id, :trace, :parent, :sdk, :kind)"
+            ),
+            {
+                "id": identifier,
+                "trace": trace,
+                "parent": parent,
+                "sdk": f"span-{index}",
+                "kind": kind,
+            },
+        )
+        parent = identifier
+    return trace
+
+
+async def existing_rows(connection):
+    return {
+        table: (
+            await connection.execute(text(f"SELECT * FROM {table} ORDER BY id"))
+        ).all()
+        for table in ("projects", "app_versions", "traces", "spans")
+    }
+
+
+async def seed_saved_credential(connection):
+    await connection.exec_driver_sql(
+        "INSERT INTO saved_credentials "
+        "(provider, model, ciphertext, key_hint, key_fingerprint, expires_at) "
+        "VALUES ('custom', 'existing-model', 'encrypted-test-value', 'hint', "
+        "'{}', now() + interval '1 hour')"
+    )
+
+
+async def test_saved_key_revision_adopts_and_upgrades_without_data_loss(
+    migration_database,
+):
+    connection = migration_database
+    schema = await new_schema(connection)
+    await upgrade(connection, schema, SAVED_CREDENTIALS_REVISION)
+    await connection.exec_driver_sql(f'DROP TABLE "{schema}".alembic_version')
+    await seed_spans(connection, ["llm", "retrieval", "tool", "validation"])
+    await seed_saved_credential(connection)
+    before = await existing_rows(connection)
+    keys = (await connection.execute(text("SELECT * FROM saved_credentials"))).all()
+    assert (
+        await connection.run_sync(adopt_existing, schema) == SAVED_CREDENTIALS_REVISION
+    )
+    await upgrade(connection, schema)
+    assert await existing_rows(connection) == before
+    assert (
+        await connection.execute(text("SELECT * FROM saved_credentials"))
+    ).all() == keys
+
+
+async def test_team_only_sql_adoption_creates_keys_and_preserves_team_spans(
+    migration_database,
+):
+    connection = migration_database
+    schema = await new_schema(connection)
+    await bootstrap_sql(connection, schema)
+    await connection.exec_driver_sql("DROP TABLE saved_credentials")
+    await seed_spans(connection, ["router", "agent", "llm", "retrieval"])
+    before = await existing_rows(connection)
+    assert await connection.run_sync(adopt_existing, schema) == HEAD_REVISION
+    await upgrade(connection, schema)
+    assert await existing_rows(connection) == before
+    assert await connection.scalar(text("SELECT count(*) FROM saved_credentials")) == 0
+    assert (
+        await connection.scalar(text("SELECT version_num FROM alembic_version"))
+        == HEAD_REVISION
+    )
+    canonical = await new_schema(connection)
+    await bootstrap_sql(connection, canonical)
+    assert await connection.run_sync(
+        schema_snapshot, schema
+    ) == await connection.run_sync(schema_snapshot, canonical)
+
+
+async def test_team_only_drift_is_rejected_before_target_writes(migration_database):
+    connection = migration_database
+    schema = await new_schema(connection)
+    await bootstrap_sql(connection, schema)
+    await connection.exec_driver_sql("DROP TABLE saved_credentials")
+    await connection.exec_driver_sql("ALTER TABLE projects ADD COLUMN drift text")
+    await seed_spans(connection, ["router", "agent"])
+    before = await connection.run_sync(schema_snapshot, schema)
+    rows = await existing_rows(connection)
+    with pytest.raises(RuntimeError, match="differs"):
+        await connection.run_sync(adopt_existing, schema)
+    assert await connection.run_sync(schema_snapshot, schema) == before
+    assert await existing_rows(connection) == rows
+    assert "alembic_version" not in await connection.run_sync(
+        lambda sync: inspect(sync).get_table_names(schema=schema)
+    )
+
+
+async def test_team_adoption_rolls_back_partial_key_storage_and_history(
+    migration_database,
+):
+    connection = migration_database
+    schema = await new_schema(connection)
+    await bootstrap_sql(connection, schema)
+    await connection.exec_driver_sql("DROP TABLE saved_credentials")
+    await seed_spans(connection, ["router", "agent", "llm"])
+    before = await connection.run_sync(schema_snapshot, schema)
+    rows = await existing_rows(connection)
+    schemas = await connection.run_sync(lambda sync: inspect(sync).get_schema_names())
+    indexes = 0
+
+    def fail_target_index(conn, cursor, statement, parameters, context, executemany):
+        nonlocal indexes
+        if "CREATE INDEX idx_saved_credentials_expires_at" in statement:
+            indexes += 1
+            # First is the disposable reference schema; second is the legacy DB.
+            if indexes == 2:
+                raise RuntimeError("injected index creation failure")
+
+    event.listen(connection.sync_connection, "before_cursor_execute", fail_target_index)
+    try:
+        with pytest.raises(RuntimeError, match="injected index creation failure"):
+            await connection.run_sync(adopt_existing, schema)
+    finally:
+        event.remove(
+            connection.sync_connection, "before_cursor_execute", fail_target_index
+        )
+    assert indexes == 2
+    assert await connection.run_sync(schema_snapshot, schema) == before
+    assert await existing_rows(connection) == rows
+    assert (
+        await connection.run_sync(lambda sync: inspect(sync).get_schema_names())
+        == schemas
+    )
+    assert "alembic_version" not in await connection.run_sync(
+        lambda sync: inspect(sync).get_table_names(schema=schema)
+    )
+
+
+async def test_team_span_migration_retains_all_types_and_rejects_unknown(
+    migration_database,
+):
+    connection = migration_database
+    schema = await new_schema(connection)
+    await upgrade(connection, schema, SAVED_CREDENTIALS_REVISION)
+    trace = await seed_spans(connection, ["llm", "retrieval", "tool", "validation"])
+    before = await existing_rows(connection)
+    await upgrade(connection, schema)
+    assert await existing_rows(connection) == before
+    for kind in ("router", "agent"):
+        await connection.execute(
+            text(
+                "INSERT INTO spans(trace_id, sdk_span_id, type) VALUES (:trace, :kind, :kind)"
+            ),
+            {"trace": trace, "kind": kind},
+        )
+    assert await connection.scalar(text("SELECT count(*) FROM spans")) == 6
+    nested = await connection.begin_nested()
+    with pytest.raises(DBAPIError, match="spans_type_check"):
+        await connection.execute(
+            text(
+                "INSERT INTO spans(trace_id, sdk_span_id, type) VALUES (:trace, 'bad', 'unknown')"
+            ),
+            {"trace": trace},
+        )
+    await nested.rollback()
+
+
+async def test_team_downgrade_refuses_existing_team_rows_and_retains_keys(
+    migration_database,
+):
+    connection = migration_database
+    schema = await new_schema(connection)
+    await upgrade(connection, schema)
+    await seed_spans(connection, ["router", "agent", "llm"])
+    await seed_saved_credential(connection)
+    before = await connection.run_sync(schema_snapshot, schema)
+    rows = await existing_rows(connection)
+    nested = await connection.begin_nested()
+    with pytest.raises(DBAPIError, match="router or agent spans still exist"):
+        await connection.run_sync(
+            lambda sync: command.downgrade(
+                migration_config(sync, schema), BASELINE_REVISION
+            )
+        )
+    await nested.rollback()
+    assert await connection.run_sync(schema_snapshot, schema) == before
+    assert await existing_rows(connection) == rows
+    assert await connection.scalar(text("SELECT count(*) FROM saved_credentials")) == 1
+    assert (
+        await connection.scalar(text("SELECT version_num FROM alembic_version"))
+        == HEAD_REVISION
+    )
+
+
+async def test_team_downgrade_without_team_rows_retains_old_spans_and_keys(
+    migration_database,
+):
+    connection = migration_database
+    schema = await new_schema(connection)
+    await upgrade(connection, schema)
+    await seed_spans(connection, ["llm", "retrieval", "tool", "validation"])
+    await seed_saved_credential(connection)
+    before = await existing_rows(connection)
+    await connection.run_sync(
+        lambda sync: command.downgrade(
+            migration_config(sync, schema), SAVED_CREDENTIALS_REVISION
+        )
+    )
+    assert await existing_rows(connection) == before
+    assert await connection.scalar(text("SELECT count(*) FROM saved_credentials")) == 1
+    assert (
+        await connection.scalar(text("SELECT version_num FROM alembic_version"))
+        == SAVED_CREDENTIALS_REVISION
+    )
     await upgrade(connection, schema)

@@ -3,7 +3,21 @@ import { api } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { Empty, ErrorBox, Spinner, fmtTime, shortId } from '../ui.jsx';
 
-const TYPE_LABELS = { llm: 'LLM', retrieval: 'Retrieval', tool: 'Tool', validation: 'Validation' };
+const TYPE_LABELS = {
+  llm: 'LLM',
+  retrieval: 'Retrieval',
+  tool: 'Tool',
+  validation: 'Validation',
+  router: 'Router',
+  agent: 'Agent',
+};
+
+function spanLabel(node) {
+  const label = TYPE_LABELS[node.type] ?? node.type;
+  if (node.type === 'agent' && node.payload?.name) return `${label} · ${node.payload.name}`;
+  if (node.type === 'router' && node.payload?.choice) return `${label} → ${node.payload.choice}`;
+  return label;
+}
 
 function formatDuration(ms) {
   if (!Number.isFinite(ms)) return '—';
@@ -59,7 +73,7 @@ function Waterfall({ rows, selectedId, onSelect }) {
                 onClick={() => onSelect(r.node.id)}
               >
                 <span className="span-name" style={{ paddingLeft: r.depth * 16 }}>
-                  {TYPE_LABELS[r.node.type] ?? r.node.type}
+                  {spanLabel(r.node)}
                   <span className="muted"> · {r.node.sdk_span_id}</span>
                 </span>
                 <span className="span-bar-track">
@@ -249,7 +263,7 @@ export default function TracesTab({
                 <section aria-label="Span details">
                   <div className="section-head">
                     <h3>
-                      {TYPE_LABELS[span.type] ?? span.type}
+                      {spanLabel(span)}
                       {(span.chunks?.length ?? 0) > 0 ? ` · ${span.chunks.length} chunks` : ''}
                     </h3>
                     <span className="muted">

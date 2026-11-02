@@ -91,7 +91,9 @@ class Span(Record, Base):
     )
     __table_args__ = (
         UniqueConstraint("trace_id", "sdk_span_id"),
-        CheckConstraint("type IN ('llm', 'retrieval', 'tool', 'validation')"),
+        CheckConstraint(
+            "type IN ('llm', 'retrieval', 'tool', 'validation', 'router', 'agent')"
+        ),
         Index("idx_spans_trace", "trace_id"),
         Index("idx_spans_parent", "parent_span_id"),
     )

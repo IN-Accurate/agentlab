@@ -68,6 +68,8 @@ For a new database, install the backend dependencies and run
 `DATABASE_URL='<your-postgres-direct-URL>' .venv/bin/python -m alembic -c server/alembic.ini upgrade head`
 before starting the API. For a database that already contains AgentLab data, follow the
 [baseline adoption instructions](server/migrations/README.md) instead of recreating its tables.
+The migration head includes the team `router` and `agent` span types. The adoption
+procedure also recognizes the team schema created before saved-key storage existed.
 
 To save BYOK credentials across server restarts, generate a Fernet key once with
 `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
