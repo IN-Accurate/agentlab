@@ -1,8 +1,10 @@
 import json
+from contextlib import aclosing
 
 from app.errors import AppError, error_body
 from app.security import safe_http_client
 from app.services.evaluator import require_backend, context
+from app.services.credentials import release
 
 EVENTS = {
     "message.delta",
@@ -16,6 +18,15 @@ CARDS = {"run_summary", "diagnosis", "replay", "repair", "scorecard"}
 
 
 async def events(state, db, prepared):
+    try:
+        async with aclosing(_events(state, db, prepared)) as stream:
+            async for event in stream:
+                yield event
+    finally:
+        release(prepared[1])
+
+
+async def _events(state, db, prepared):
     payload, allowed = prepared
     backend = require_backend(state)
     function = getattr(backend, "stream_chat", None)
@@ -26,8 +37,10 @@ async def events(state, db, prepared):
     text = ""
     size = 0
     client = safe_http_client(state.settings)
+    upstream = None
     try:
-        async for item in function(payload, context(db, state, allowed, None, client)):
+        upstream = function(payload, context(db, state, allowed, None, client))
+        async for item in upstream:
             if hasattr(item, "model_dump"):
                 item = item.model_dump()
             if (
@@ -71,5 +84,10 @@ async def events(state, db, prepared):
         )
         yield {"event": "error", "data": json.dumps(state.redactor.scrub(body))}
     finally:
-        await client.aclose()
+        try:
+            close = getattr(upstream, "aclose", None)
+            if close is not None:
+                await close()
+        finally:
+            await client.aclose()
     yield {"event": "done", "data": "{}"}

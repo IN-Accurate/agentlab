@@ -23,6 +23,7 @@ from app.security import (
 )
 from app.store import CredentialStore, JobStore
 from app.schemas import HealthResponse, MetaResponse
+from app.services.credentials import SavedCredentials
 from app.routers import (
     chat,
     credentials,
@@ -41,7 +42,8 @@ MAX_BODY_BYTES = 10_000_000
 
 
 def create_app(settings=None, evaluator=None):
-    settings = settings or Settings()
+    settings = (settings or Settings()).model_copy()
+    persistent_credentials = bool(settings.app_encryption_key)
     if not settings.app_encryption_key:
         settings.app_encryption_key = Fernet.generate_key().decode()
         logging.getLogger(__name__).warning(
@@ -65,6 +67,8 @@ def create_app(settings=None, evaluator=None):
                 handler.addFilter(f)
                 filters.append((handler, f))
         try:
+            if app.state.saved_credentials is not None:
+                await app.state.saved_credentials.restore()
             yield
         finally:
             for handler, f in filters:
@@ -77,6 +81,9 @@ def create_app(settings=None, evaluator=None):
     app.state.evaluator = evaluator
     app.state.redactor = Redactor()
     app.state.credential_store = CredentialStore(on_evict=app.state.redactor.discard)
+    app.state.saved_credentials = (
+        SavedCredentials(app.state) if persistent_credentials else None
+    )
     app.state.job_store = JobStore()
     app.state.rate_limits = {}
 

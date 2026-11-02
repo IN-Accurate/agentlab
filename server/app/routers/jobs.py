@@ -55,8 +55,12 @@ async def submit(state, background, operation):
                     error_body(exc.code, exc.message, exc.details)
                 ),
             )
-        except Exception:
-            logger.exception("job failed")
+        except Exception as exc:
+            safe_traceback = getattr(exc, "_agentlab_redacted_traceback", None)
+            if safe_traceback is not None:
+                logger.error("job failed\n%s", safe_traceback)
+            else:
+                logger.exception("job failed")
             state.job_store.update(
                 identifier,
                 status="failed",

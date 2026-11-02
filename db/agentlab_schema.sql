@@ -198,4 +198,22 @@ $$;
 CREATE TRIGGER no_app_version_update BEFORE UPDATE ON app_versions
 FOR EACH ROW EXECUTE FUNCTION reject_app_version_update();
 
+-- 6. SAVED CREDENTIALS ----------------------------------------------------
+-- Only Fernet ciphertext and non-secret metadata are durable. The encryption
+-- key is supplied by APP_ENCRYPTION_KEY and must never be stored in Postgres.
+CREATE TABLE saved_credentials (
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at       timestamptz NOT NULL DEFAULT now(),
+    provider         text NOT NULL,
+    base_url         text,
+    model            text NOT NULL,
+    judge_model      text,
+    ciphertext       text NOT NULL,
+    key_hint         text NOT NULL,
+    key_fingerprint  jsonb NOT NULL,
+    expires_at       timestamptz NOT NULL
+);
+
+CREATE INDEX idx_saved_credentials_expires_at ON saved_credentials(expires_at);
+
 COMMIT;

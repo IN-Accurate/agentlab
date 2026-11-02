@@ -58,13 +58,22 @@ A team is a project whose version config has a `team` block. The version's own `
 - Chat sends a `step.finished` event with `route` before the answer.
 - `examples/support_team.json` holds a labelled routing set, and `tests/test_team.py` checks that the rules pass every case.
 
-Existing databases need the new span types:
+Existing databases need the managed team-span migration. With `DATABASE_URL`
+exported to the intended direct Postgres connection, run from the repository root:
 
-```sql
-ALTER TABLE spans DROP CONSTRAINT spans_type_check;
-ALTER TABLE spans ADD CONSTRAINT spans_type_check CHECK (type IN (
-    'llm', 'retrieval', 'tool', 'validation', 'router', 'agent'));
+```sh
+python -m alembic -c server/alembic.ini upgrade head
 ```
+
+The head is `0003_team_span_types`, after the encrypted saved-key migration.
+For an existing SQL-built database without Alembic history, first follow the
+[guarded adoption procedure](../migrations/README.md) on a restored database copy;
+it also supports the fourteen-table team schema that predates saved-key storage.
+Do not apply the manual constraint change separately from the migration history.
+
+Team requests send coordinator, judge, and member credential IDs through the same
+saved-key validation and hydration path. Configure a stable `APP_ENCRYPTION_KEY`
+to persist keys across restarts. The existing credential expiry still applies.
 
 ## Providers
 
