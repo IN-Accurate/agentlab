@@ -32,7 +32,9 @@ async def trace_cases(db, trace_id):
         return [case]
     return list(
         await db.scalars(
-            select(TestCase).where(TestCase.source_trace_id == trace_id).limit(2)
+            select(TestCase)
+            .where(TestCase.source_trace_id == trace_id, TestCase.archived_at.is_(None))
+            .limit(2)
         )
     )
 
@@ -87,6 +89,9 @@ async def run_repair(payload, context):
     if case is not None and case.split == "holdout":
         raise AppError("holdout_target", "Holdout results cannot generate repairs", 422)
     patch, rationale = options.get("patch"), None
+    if case is None and not patch:
+        # verify could never score a candidate written without a target test.
+        raise AppError("no_target_test", "Repair has no test to verify against", 422)
     if not patch:
         model = ModelClient.from_context(context, options["credential_id"], judge=True)
         patch, rationale = await propose_prompt(model, config, target, case)

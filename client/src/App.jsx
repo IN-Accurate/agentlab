@@ -210,6 +210,7 @@ export default function App() {
                 <>
                   <p className="muted">Connect an agent here to use it in new chats.</p>
                   <ConnectForm
+                    initialName={lastConnection?.name ?? ''}
                     initialEndpoint={lastConnection?.endpoint ?? ''}
                     initialModel={lastConnection?.model ?? ''}
                     onConnect={connectAgent}

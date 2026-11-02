@@ -143,6 +143,7 @@ Registered keys, Bearer values and key query fields are redacted. User URLs must
 | AGENTLAB_ALLOW_INSECURE_LOCAL | false; development-only localhost HTTP URL exception |
 | CREDENTIAL_RATE_LIMIT |20 per peer IP per minute |
 | CHAT_RATE_LIMIT |30 per peer IP per minute |
+| HUGGINGFACE_RATE_LIMIT |10 Hugging Face previews and imports per peer IP per minute |
 | TEST_DATABASE_URL | Tests only; disposable database name must contain test |
 | AGENTLAB_API_KEY | Unset leaves /v1 open for local development; when set, every /v1 route requires a matching X-Api-Key header |
 | META_API_KEY, META_BASE_URL, META_MODEL | Optional default Meta key. When all three are set, POST `/v1/credentials/default` stores a normal temporary credential from them; the key is never returned. With AGENTLAB_API_KEY, anyone holding that key can use it. Without it, set AGENTLAB_UNAUTHENTICATED_DEFAULT_KEY=true (development only) to allow direct localhost callers |

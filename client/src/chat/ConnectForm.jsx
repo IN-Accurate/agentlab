@@ -3,8 +3,14 @@ import { api, ApiError } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { Field } from '../ui.jsx';
 
-export default function ConnectForm({ initialEndpoint = '', initialModel = '', onConnect, onCancel }) {
-  const [name, setName] = useState('');
+export default function ConnectForm({
+  initialName = '',
+  initialEndpoint = '',
+  initialModel = '',
+  onConnect,
+  onCancel,
+}) {
+  const [name, setName] = useState(initialName);
   const [endpoint, setEndpoint] = useState(initialEndpoint);
   const [model, setModel] = useState(initialModel);
   const [apiKey, setApiKey] = useState('');

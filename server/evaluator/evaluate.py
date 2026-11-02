@@ -101,10 +101,12 @@ async def evaluate_case(model, grader, config, case, params=None):
     reason = failure_reason(result)
     notes = [reason] if reason else []
     if not reason:
+        # A validator that could not run is not evidence of a pass.
         notes += [
-            f"Validator failed: {item['payload']['spec']}"
+            f"Validator {'failed' if item['payload']['passed'] is False else 'could not run'}: "
+            f"{item['payload']['spec']}"
             for item in result.spans
-            if item["type"] == "validation" and item["payload"]["passed"] is False
+            if item["type"] == "validation" and item["payload"]["passed"] is not True
         ]
         reference = expected.get("reference")
         if reference and str(reference).lower() not in result.output.lower():

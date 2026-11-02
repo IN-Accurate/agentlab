@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     meta_model: str | None = None
     credential_rate_limit: int = Field(20, ge=1)
     chat_rate_limit: int = Field(30, ge=1)
+    huggingface_rate_limit: int = Field(10, ge=1)
 
     @model_validator(mode="after")
     def check_settings(self):

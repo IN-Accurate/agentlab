@@ -19,6 +19,14 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 HINT_LENGTH = 4
 RATE_LIMIT_MAX_KEYS = 10000
 CREDENTIAL_PATHS = ("/v1/credentials", "/v1/credentials/default")
+
+
+def is_huggingface_path(path):
+    return path == "/v1/huggingface/datasets" or path.endswith(
+        "/test-cases/huggingface"
+    )
+
+
 # Bearer values match by syntax and minimum length (fail closed); exact
 # prose nouns are allowlisted so documentation stays readable.
 BEARER_PROSE_ALLOWLIST = ("authentication", "credential", "credentials")
@@ -315,7 +323,13 @@ def revoke_credential(identifier, store):
 def rate_limit(request, limit, window=60):
     now = monotonic()
     buckets = request.app.state.rate_limits
-    category = "credentials" if request.url.path in CREDENTIAL_PATHS else "chat"
+    path = request.url.path
+    if path in CREDENTIAL_PATHS:
+        category = "credentials"
+    elif is_huggingface_path(path):
+        category = "huggingface"
+    else:
+        category = "chat"
     key = (request.client.host if request.client else "unknown", category)
     recent = [stamp for stamp in buckets.get(key, []) if now - stamp < window]
     if len(recent) >= limit:

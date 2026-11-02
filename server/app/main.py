@@ -14,7 +14,13 @@ from starlette.exceptions import HTTPException
 from app.config import Settings
 from app.db import connect
 from app.errors import AppError, error_body
-from app.security import CREDENTIAL_PATHS, Redactor, RedactionFilter, rate_limit
+from app.security import (
+    CREDENTIAL_PATHS,
+    Redactor,
+    RedactionFilter,
+    is_huggingface_path,
+    rate_limit,
+)
 from app.store import CredentialStore, JobStore
 from app.schemas import HealthResponse, MetaResponse
 from app.routers import (
@@ -119,6 +125,11 @@ def create_app(settings=None, evaluator=None):
                     if request.url.path in CREDENTIAL_PATHS
                     else settings.chat_rate_limit,
                 )
+            except AppError as exc:
+                return reply(request, exc.code, exc.message, exc.status)
+        if is_huggingface_path(request.url.path):
+            try:
+                rate_limit(request, settings.huggingface_rate_limit)
             except AppError as exc:
                 return reply(request, exc.code, exc.message, exc.status)
         return await call_next(request)

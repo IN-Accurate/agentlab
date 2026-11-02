@@ -362,3 +362,17 @@ async def test_default_key_is_local_only_without_an_api_key(api):
     settings.agentlab_unauthenticated_default_key = False
     local = await api[0].post("/v1/credentials/default")
     assert local.status_code == 403
+
+
+async def test_huggingface_routes_are_rate_limited(api, monkeypatch):
+    client, app = api
+    app.state.settings.huggingface_rate_limit = 1
+    monkeypatch.setattr(
+        "app.routers.huggingface.safe_http_client",
+        lambda settings: huggingface_client([]),
+    )
+    path = "/v1/huggingface/datasets?dataset=owner/name"
+    assert (await client.get(path)).status_code == 200
+    limited = await client.get(path)
+    assert limited.status_code == 429
+    assert limited.json()["error"]["code"] == "rate_limited"

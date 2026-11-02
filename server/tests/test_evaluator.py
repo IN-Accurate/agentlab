@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from uuid import UUID
 
 import httpx
@@ -28,7 +29,12 @@ from evaluator.agent import (
     validate,
 )
 from evaluator.diagnosis import Facts, classify, judge
-from evaluator.evaluate import draft_input, latest_version, prior_messages
+from evaluator.evaluate import (
+    draft_input,
+    evaluate_case,
+    latest_version,
+    prior_messages,
+)
 from evaluator.llm import ModelClient, ModelError
 from evaluator.repair import score, target_case
 
@@ -860,3 +866,57 @@ async def test_repair_rejects_a_trace_with_several_tests(api, monkeypatch):
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "ambiguous_target"
     assert calls == []
+
+
+async def test_archived_cases_do_not_make_a_target_ambiguous(api, monkeypatch):
+    http, app = api
+    p, v, c = await setup(http, app, monkeypatch, lambda r: completion())
+    async with app.state.sessions() as db, db.begin():
+        db.info["redactor"] = app.state.redactor
+        trace_id = await save_trace(db, UUID(v), "q", AgentResult(output="o"))
+        live = TestCase(
+            project_id=UUID(p), origin="from_trace", input="a", source_trace_id=trace_id
+        )
+        old = TestCase(
+            project_id=UUID(p),
+            origin="from_trace",
+            input="b",
+            source_trace_id=trace_id,
+            archived_at=datetime.now(UTC),
+        )
+        db.add_all([live, old])
+        await db.flush()
+        assert (await target_case(db, trace_id)).id == live.id
+
+
+async def test_repair_without_a_target_test_makes_no_model_call(api, monkeypatch):
+    http, app = api
+    calls = []
+
+    def handler(request):
+        calls.append(json.loads(request.content)["messages"][0]["content"][:12])
+        return completion('{"rule": "grounding", "confidence": 0.5}')
+
+    p, v, c = await setup(http, app, monkeypatch, handler)
+    async with app.state.sessions() as db, db.begin():
+        db.info["redactor"] = app.state.redactor
+        trace_id = await save_trace(db, UUID(v), "q", AgentResult(output="o"))
+    diagnosis = await http.post(
+        f"/v1/traces/{trace_id}/diagnose", json={"credential_id": c}
+    )
+    calls.clear()
+    response = await http.post(
+        f"/v1/diagnoses/{diagnosis.json()['id']}/repairs", json={"credential_id": c}
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "no_target_test"
+    assert calls == []
+
+
+async def test_unsupported_validator_fails_the_case():
+    config = {"validators": [{"type": "regex", "value": "x"}]}
+    outcome = await evaluate_case(
+        client(lambda r: completion("answer")), None, config, {"input": "q"}
+    )
+    assert outcome.passed is False
+    assert "could not run" in outcome.explanation
