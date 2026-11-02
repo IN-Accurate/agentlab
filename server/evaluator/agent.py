@@ -90,7 +90,7 @@ def system_message(config, chunks):
 
 
 def tool_definitions(config):
-    """Tools may hold a canned `result`; TestLab cannot run the app's own tools."""
+    """Tools may hold a canned `result`; AgentLab cannot run the app's own tools."""
     tools = {}
     for tool in config.get("tools") or []:
         schema = tool.get("function", tool)
@@ -183,7 +183,7 @@ def validate(config, output):
     return spans
 
 
-async def run_agent(model, config, query, params=None):
+async def run_agent(model, config, query, params=None, history=None):
     agent = config.get("agent") or {}
     result = AgentResult()
     chunks = []
@@ -195,6 +195,7 @@ async def run_agent(model, config, query, params=None):
         )
     system = system_message(config, chunks)
     messages = [{"role": "system", "content": system}] if system else []
+    messages += history or []
     messages.append({"role": "user", "content": query})
     tools = tool_definitions(config)
     schemas = [tool["schema"] for tool in tools.values()]

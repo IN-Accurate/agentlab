@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 export function Spinner({ label = 'Loading…' }) {
   return (
     <p className="muted" role="status">
@@ -64,15 +66,59 @@ export function Field({ label, error, children }) {
   );
 }
 
+const FOCUSABLE =
+  'a[href], area[href], button, input, select, textarea, summary, audio[controls], video[controls], iframe, [contenteditable], [tabindex]';
+
 export function Modal({ title, onClose, children }) {
+  const dialog = useRef(null);
+
+  useEffect(() => {
+    const previous = document.activeElement;
+    dialog.current?.focus();
+    return () => previous?.focus?.();
+  }, []);
+
+  function handleKey(event) {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const items = [...dialog.current.querySelectorAll(FOCUSABLE)].filter(
+      (item) =>
+        item.tabIndex >= 0 &&
+        !item.matches(':disabled') &&
+        item.getClientRects().length > 0 &&
+        getComputedStyle(item).visibility === 'visible',
+    );
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (!dialog.current.contains(active)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && (active === first || active === dialog.current)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
+        ref={dialog}
+        tabIndex={-1}
         className="modal"
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={handleKey}
       >
         <div className="modal-head">
           <h2>{title}</h2>

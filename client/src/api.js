@@ -29,6 +29,19 @@ export async function api(path, options = {}) {
   return body;
 }
 
+export async function proposeFix(resultId, credentialId) {
+  const body = JSON.stringify(credentialId ? { credential_id: credentialId } : {});
+  const diagnosis = await api(`/v1/run-results/${resultId}/diagnose`, { method: 'POST', body });
+  if (!credentialId) return diagnosis;
+  try {
+    await api(`/v1/diagnoses/${diagnosis.id}/repairs`, { method: 'POST', body });
+  } catch (error) {
+    // The diagnosis is saved either way, so the review still opens.
+    return { ...diagnosis, repairError: error?.message ?? 'Could not propose a repair.' };
+  }
+  return diagnosis;
+}
+
 export async function streamChat(projectId, body, onEvent, { signal } = {}) {
   const response = await fetch(`${base}/v1/projects/${projectId}/chat`, {
     method: 'POST',

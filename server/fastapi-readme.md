@@ -1,4 +1,4 @@
-# TestLab FastAPI bridge
+# AgentLab FastAPI bridge
 
 ## 1. What this backend does
 
@@ -26,7 +26,9 @@ A captured answer says 60 days; the policy says 30 days. Capture the trace and c
 | --- | --- | --- |
 | Project | POST `/v1/projects` with `{"name":"Acme Support"}` |201 project `{id,name,created_at}` |
 | Baseline | POST `/v1/projects/{id}/versions` with `{"config":{"system_prompt":"Answer from policy"}}` |201 version `{id,project_id,parent_version_id,config,created_at}` |
+| Hugging Face tests | GET `/v1/huggingface/datasets?dataset=owner/name`, POST `/v1/projects/{id}/test-cases/huggingface` |200 preview of columns and rows; 201 `{imported,skipped}`. Public datasets only, up to 200 rows per import |
 | Credential | POST `/v1/credentials` with `{provider,model,api_key}` |201 metadata with credential_id; no key |
+| Default credential | GET `/v1/credentials/default`, POST `/v1/credentials/default` |200 `{available,base_url,model}`; 201 metadata with credential_id, or 404 `default_credential_unavailable` |
 | Captured trace | POST `/v1/traces` with `{id,app_version_id,input,output,spans}` |201 trace; repeated IDs do not duplicate spans |
 | Test | POST `/v1/projects/{id}/test-cases/from-trace/{trace_id}` with `{}` |201 test containing original input |
 | Assertion | POST `/v1/test-cases/{id}/assertions` with `{"kind":"deterministic","spec":{"type":"contains","value":"30 days"}}` |201 stored specification; not executed |
@@ -76,7 +78,7 @@ Run, verify and improve are asynchronous. Poll GET `/v1/jobs/{job_id}` until com
 | tests/test_views.py | Chat forwarding and stored verdict preservation |
 | tests/test_seed.py | Canned setup reset preserves unrelated projects |
 | scripts/seed_demo.py | Canned setup data only; no AI-generated evaluation |
-| insomnia/testlab.insomnia.json | Native v4 requests with direct response chaining |
+| insomnia/agentlab.insomnia.json | Native v4 requests with direct response chaining |
 | requirements.txt | Pinned dependencies installed with pip |
 | pytest.ini | Async test configuration |
 | fastapi-readme.md | This guide |
@@ -134,17 +136,19 @@ Registered keys, Bearer values and key query fields are redacted. User URLs must
 
 | Variable | Default / missing behavior |
 | --- | --- |
-| DATABASE_URL | Localhost fallback; must explicitly select intended Neon branch |
+| DATABASE_URL | Localhost fallback `agentlab`; must explicitly select intended Neon branch. Existing local installs that used the old `testlab` default must run `ALTER DATABASE testlab RENAME TO agentlab;` once before upgrading |
 | APP_ENV | development; production enforces encryption key and HTTPS credential/chat entry |
 | APP_ENCRYPTION_KEY | Generated in development with restart warning; required in production |
 | CORS_ORIGINS | http://localhost:3000; comma-separated explicit origins, no wildcard |
-| TESTLAB_ALLOW_INSECURE_LOCAL | false; development-only localhost HTTP URL exception |
+| AGENTLAB_ALLOW_INSECURE_LOCAL | false; development-only localhost HTTP URL exception |
 | CREDENTIAL_RATE_LIMIT |20 per peer IP per minute |
 | CHAT_RATE_LIMIT |30 per peer IP per minute |
+| HUGGINGFACE_RATE_LIMIT |10 Hugging Face previews and imports per peer IP per minute |
 | TEST_DATABASE_URL | Tests only; disposable database name must contain test |
-| TESTLAB_API_KEY | Unset leaves /v1 open for local development; when set, every /v1 route requires a matching X-Api-Key header |
+| AGENTLAB_API_KEY | Unset leaves /v1 open for local development; when set, every /v1 route requires a matching X-Api-Key header |
+| META_API_KEY, META_BASE_URL, META_MODEL | Optional default Meta key. When all three are set, POST `/v1/credentials/default` stores a normal temporary credential from them; the key is never returned. With AGENTLAB_API_KEY, anyone holding that key can use it. Without it, set AGENTLAB_UNAUTHENTICATED_DEFAULT_KEY=true (development only) to allow direct localhost callers. A request is local only when both the client address and the Host header are loopback and no forwarding header is present |
 
-No Redis, TESTLAB_FAKE_LLM, provider referer/title settings or model execution options are used by this API. Provider settings belong to the separately supplied evaluator. The server does not automatically read .env: use Uvicorn --env-file. Existing shell variables take precedence over dotenv loading. Clear an obsolete shell DATABASE_URL before switching to a .env connection.
+No Redis, AGENTLAB_FAKE_LLM, provider referer/title settings or model execution options are used by this API. Provider settings belong to the separately supplied evaluator. The server does not automatically read .env: use Uvicorn --env-file. Existing shell variables take precedence over dotenv loading. Clear an obsolete shell DATABASE_URL before switching to a .env connection.
 
 ## 10. Run, tests, seed
 
@@ -182,7 +186,7 @@ python server/scripts/seed_demo.py --reset
 
 Use a dedicated Neon branch for manual testing. Initialize the SQL only if that database is empty. Never reapply schema blindly to existing data. A health 200 does not prove database connectivity. POST a project, then query the same ID in Neon's SQL editor to prove persistence.
 
-Import server/insomnia/testlab.insomnia.json using File import. This is native Insomnia v4 JSON, not Postman scripts. Base URL defaults to http://localhost:8000. Send Create project, Create initial version, Create credential, Create test, then assertions and traces. Direct response tags read the latest source responses automatically. Missing setup history reports a tag error. No empty ID variables need to be updated manually. Create a fresh credential after restart. Trace IDs remain stable for duplicate-ingest checks; change trace_id for a different captured trace.
+Import server/insomnia/agentlab.insomnia.json using File import. This is native Insomnia v4 JSON, not Postman scripts. Base URL defaults to http://localhost:8000. Send Create project, Create initial version, Create credential, Create test, then assertions and traces. Direct response tags read the latest source responses automatically. Missing setup history reports a tag error. No empty ID variables need to be updated manually. Create a fresh credential after restart. Trace IDs remain stable for duplicate-ingest checks; change trace_id for a different captured trace.
 
 DELETE requests are in 99 Cleanup and must run last. Do not run the entire collection blindly. AI POST requests return 503 until the evaluator is connected. Read-only result routes need real evaluator records or explicit canned fixtures. Verification job polling needs the job_id returned by verify, not the earlier run's job_id. The automatic run comparison defaults to the same run; select two actual run IDs to compare different versions.
 
@@ -248,7 +252,7 @@ Keep contract changes additive. OpenAPI includes 56 operations. No PATCH/PUT ver
 
 ## 15. Limits and next steps
 
-No user accounts (set TESTLAB_API_KEY to require a shared X-Api-Key header on /v1 routes), durable queue, distributed store, Redis, RSA or model fingerprinting. Behind a TLS-terminating proxy, run uvicorn with --proxy-headers --forwarded-allow-ips so the HTTPS check and per-IP rate limits see the real client; without them every credential POST returns 400 and the rate limit turns global. Use a single worker; credentials and jobs are lost on restart. TTL cleanup is lazy on lookup. SSE output buffers adjacent text for redaction. Production load, shared-store operation and real AI integration have not been tested. URL safety here does not replace the evaluator's outbound transport protections. No automatic repair deployment occurs.
+No user accounts (set AGENTLAB_API_KEY to require a shared X-Api-Key header on /v1 routes), durable queue, distributed store, Redis, RSA or model fingerprinting. Behind a TLS-terminating proxy, run uvicorn with --proxy-headers --forwarded-allow-ips so the HTTPS check and per-IP rate limits see the real client; without them every credential POST returns 400 and the rate limit turns global. Use a single worker; credentials and jobs are lost on restart. TTL cleanup is lazy on lookup. SSE output buffers adjacent text for redaction. Production load, shared-store operation and real AI integration have not been tested. URL safety here does not replace the evaluator's outbound transport protections. No automatic repair deployment occurs.
 
 ## 16. Team questions
 

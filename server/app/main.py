@@ -14,7 +14,13 @@ from starlette.exceptions import HTTPException
 from app.config import Settings
 from app.db import connect
 from app.errors import AppError, error_body
-from app.security import Redactor, RedactionFilter, rate_limit
+from app.security import (
+    CREDENTIAL_PATHS,
+    Redactor,
+    RedactionFilter,
+    is_huggingface_path,
+    rate_limit,
+)
 from app.store import CredentialStore, JobStore
 from app.schemas import HealthResponse, MetaResponse
 from app.routers import (
@@ -22,6 +28,7 @@ from app.routers import (
     credentials,
     dashboard,
     fixloop,
+    huggingface,
     jobs,
     mvp,
     projects,
@@ -64,7 +71,7 @@ def create_app(settings=None, evaluator=None):
                 handler.removeFilter(f)
             await app.state.engine.dispose()
 
-    app = FastAPI(title="TestLab API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="AgentLab API", version="0.1.0", lifespan=lifespan)
     app.state.settings, app.state.sessions = settings, sessions
     app.state.engine = engine
     app.state.evaluator = evaluator
@@ -94,7 +101,7 @@ def create_app(settings=None, evaluator=None):
                     "Request body exceeds the 10MB limit",
                     413,
                 )
-            key = settings.testlab_api_key
+            key = settings.agentlab_api_key
             if key and not hmac.compare_digest(
                 request.headers.get("x-api-key", "").encode(), key.encode()
             ):
@@ -107,7 +114,7 @@ def create_app(settings=None, evaluator=None):
                 request, "key_in_url", "Credentials must not be placed in URLs", 400
             )
         if request.method == "POST" and (
-            request.url.path == "/v1/credentials" or request.url.path.endswith("/chat")
+            request.url.path in CREDENTIAL_PATHS or request.url.path.endswith("/chat")
         ):
             try:
                 if settings.app_env == "production" and request.url.scheme != "https":
@@ -115,9 +122,14 @@ def create_app(settings=None, evaluator=None):
                 rate_limit(
                     request,
                     settings.credential_rate_limit
-                    if request.url.path == "/v1/credentials"
+                    if request.url.path in CREDENTIAL_PATHS
                     else settings.chat_rate_limit,
                 )
+            except AppError as exc:
+                return reply(request, exc.code, exc.message, exc.status)
+        if is_huggingface_path(request.url.path):
+            try:
+                rate_limit(request, settings.huggingface_rate_limit)
             except AppError as exc:
                 return reply(request, exc.code, exc.message, exc.status)
         return await call_next(request)
@@ -208,6 +220,7 @@ def create_app(settings=None, evaluator=None):
     app.include_router(projects.router)
     app.include_router(traces.router)
     app.include_router(tests.router)
+    app.include_router(huggingface.router)
     app.include_router(runs.router)
     app.include_router(jobs.router)
     app.include_router(mvp.router)

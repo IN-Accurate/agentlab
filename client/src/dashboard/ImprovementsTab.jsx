@@ -72,6 +72,8 @@ async function loadChain(projectId, review) {
       return { repairs, chain: await finishChain(picked, verification, scorecard) };
     }
   }
+  // A requested diagnosis with no repair must not fall back to an unrelated one.
+  if (!picked && review?.diagnosisId) return { repairs, chain: null };
   picked ??= repairs[0];
   const scored = await api(`/v1/verifications?repair_id=${picked.repair.id}&limit=50`);
   const verification = [...(scored.items ?? [])].sort((a, b) =>
@@ -96,7 +98,14 @@ async function finishChain(picked, verification, scorecard) {
   return { ...picked, verification, scorecard, candidate, baselineId, diff, lineage };
 }
 
-export default function ImprovementsTab({ projectId, labels, dash, patchDash, chatCredentialId }) {
+export default function ImprovementsTab({
+  projectId,
+  labels,
+  dash,
+  patchDash,
+  chatCredentialId,
+  onVerified,
+}) {
   const [verifying, setVerifying] = useState(false);
   const [actionError, setActionError] = useState('');
   const loaded = useFetch(`review-${projectId}-${JSON.stringify(dash.review ?? null)}`, () =>
@@ -106,12 +115,36 @@ export default function ImprovementsTab({ projectId, labels, dash, patchDash, ch
   if (loaded.loading) return <Spinner />;
   if (loaded.error) return <ErrorBox error={loaded.error} onRetry={loaded.reload} />;
   const { repairs, chain } = loaded.data;
+  const repairError = dash.review?.repairError ? (
+    <p className="field-error" role="alert">
+      Diagnosis saved, but no repair was created: {dash.review.repairError}
+    </p>
+  ) : null;
   if (!chain)
     return (
-      <Empty
-        title="No improvement reviews yet"
-        hint="Diagnose a failed result or trace to propose your first change."
-      />
+      <>
+        {repairError}
+        {repairs.length ? (
+          <Empty
+            title="No repair for this diagnosis"
+            hint="This project has earlier repairs you can review."
+            action={
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => patchDash({ review: { repairId: repairs[0].repair.id } })}
+              >
+                Review latest repair
+              </button>
+            }
+          />
+        ) : (
+          <Empty
+            title="No improvement reviews yet"
+            hint="Diagnose a failed result or trace to propose your first change."
+          />
+        )}
+      </>
     );
 
   const { diagnosis, repair, verification, scorecard, candidate, baselineId, diff, lineage } = chain;
@@ -132,6 +165,7 @@ export default function ImprovementsTab({ projectId, labels, dash, patchDash, ch
       });
       const done = await pollJob(job.job_id, { interval: 1500, timeout: 600000 });
       if (done.status === 'failed') throw new Error(done.error?.error?.message ?? 'Verification failed.');
+      onVerified();
       const next = { ...dash.review, repairId: repair.id, verificationId: null };
       patchDash({ review: next });
       if (JSON.stringify(next) === JSON.stringify(dash.review ?? null)) loaded.reload();
@@ -144,6 +178,7 @@ export default function ImprovementsTab({ projectId, labels, dash, patchDash, ch
 
   return (
     <div className="improvements">
+      {repairError}
       <h2>Did the change actually fix it?</h2>
       <p className="muted">Review the controlled replay, candidate patch, and verification verdict.</p>
       <div className="section-head">

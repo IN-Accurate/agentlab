@@ -21,7 +21,7 @@ export default function TestCard({ card, onRun, onViewEvidence, onFindFix, findi
             View evidence in Dashboard →
           </button>
         </p>
-        {r.resultId ? (
+        {failed && r.resultId ? (
           <button
             type="button"
             className="btn-primary"

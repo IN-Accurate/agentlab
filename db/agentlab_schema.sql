@@ -1,4 +1,4 @@
--- TestLab data model v0 (Postgres 15+)
+-- AgentLab data model v0 (Postgres 15+)
 -- Run top to bottom: tables are ordered so every foreign key target already exists.
 -- gen_random_uuid() is built in from Postgres 13, so no extension is needed.
 

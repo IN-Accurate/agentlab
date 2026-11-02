@@ -143,7 +143,7 @@ def grounding_rule(facts):
 
 
 def unsupported_claim_rule(facts):
-    if not facts.spans("retrieval"):
+    if not facts.chunks:
         return None
     known = set(re.findall(r"\d+(?:[.,]\d+)?", facts.context))
     claims = sorted(set(re.findall(r"\d+(?:[.,]\d+)?", facts.output)) - known)

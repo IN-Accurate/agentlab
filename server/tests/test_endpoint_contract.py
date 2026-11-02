@@ -1,11 +1,13 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import BackgroundTasks
+from pydantic import SecretStr
 from sqlalchemy import func, select
 
 from app.errors import AppError
-from app.models import AppVersion, Project
+from app.models import AppVersion, Project, TestCase
 from app.routers.jobs import get_job, submit
 
 
@@ -153,7 +155,7 @@ async def test_version_config_accepts_secret_lookalike_prose(api):
 
 async def test_api_key_guard(api):
     client, app = api
-    app.state.settings.testlab_api_key = "test-key-123"
+    app.state.settings.agentlab_api_key = "test-key-123"
     denied = await client.get("/v1/projects")
     assert denied.status_code == 401
     assert denied.json()["error"]["code"] == "unauthorized"
@@ -162,3 +164,224 @@ async def test_api_key_guard(api):
     assert (await client.get("/health")).status_code == 200
     allowed = await client.get("/v1/projects", headers={"X-Api-Key": "test-key-123"})
     assert allowed.status_code == 200, allowed.text
+
+
+async def test_default_credential_keeps_key_on_server(api, monkeypatch):
+    async def allow_url(*args):
+        return None
+
+    monkeypatch.setattr("app.routers.credentials.validate_url", allow_url)
+    client, app = api
+    client.headers["host"] = "localhost:8000"
+    settings = app.state.settings
+    settings.agentlab_unauthenticated_default_key = True
+    status = await client.get("/v1/credentials/default")
+    assert status.json() == {"available": False, "base_url": None, "model": None}
+    missing = await client.post("/v1/credentials/default")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "default_credential_unavailable"
+
+    key = "server-side-meta-key"
+    settings.meta_base_url = "https://example.com/v1"
+    settings.meta_model = "example-model"
+    settings.meta_api_key = SecretStr("REPLACE_ME")
+    assert (await client.get("/v1/credentials/default")).json()["available"] is False
+
+    settings.meta_api_key = SecretStr(key)
+    status = await client.get("/v1/credentials/default")
+    assert status.json() == {
+        "available": True,
+        "base_url": "https://example.com/v1",
+        "model": "example-model",
+    }
+    created = await client.post("/v1/credentials/default")
+    assert created.status_code == 201
+    assert key not in status.text + created.text
+    stored = app.state.credential_store.get(created.json()["credential_id"])
+    assert stored["base_url"] == "https://example.com/v1"
+    assert key not in str(stored)
+
+    settings.credential_rate_limit = 1
+    limited = await client.post("/v1/credentials/default")
+    assert limited.status_code == 429
+
+
+def huggingface_client(rows, seen=None):
+    features = [{"name": "question"}, {"name": "answer"}]
+
+    def handler(request):
+        if seen is not None:
+            seen.append(request)
+        if request.url.path == "/splits":
+            if request.url.params["dataset"] == "missing/set":
+                return httpx.Response(404)
+            return httpx.Response(
+                200, json={"splits": [{"config": "default", "split": "train"}]}
+            )
+        offset = int(request.url.params["offset"])
+        length = int(request.url.params["length"])
+        page = rows[offset : offset + length]
+        return httpx.Response(
+            200,
+            json={
+                "features": features,
+                "rows": [{"row": row} for row in page],
+                "num_rows_total": len(rows),
+            },
+        )
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+async def test_huggingface_preview_and_import(api, monkeypatch):
+    client, app = api
+    rows = [{"question": f"q{i}", "answer": f"a{i}"} for i in range(150)]
+    rows[1] = {"question": "", "answer": "empty input"}
+    rows[2] = {"question": "q2", "answer": None}
+    rows[3] = {"question": "q0", "answer": "a0"}
+    seen = []
+    monkeypatch.setattr(
+        "app.routers.huggingface.safe_http_client",
+        lambda settings: huggingface_client(rows, seen),
+    )
+    project = (await client.post("/v1/projects", json={"name": "Hub"})).json()["id"]
+    preview = await client.get("/v1/huggingface/datasets?dataset=owner/name")
+    assert preview.status_code == 200
+    assert preview.json()["columns"] == ["question", "answer"]
+    assert (preview.json()["config"], preview.json()["total"]) == ("default", 150)
+    assert all(r.url.host == "datasets-server.huggingface.co" for r in seen)
+
+    body = {
+        "dataset": "owner/name",
+        "config": "default",
+        "split": "train",
+        "input_column": "question",
+        "expected_column": "answer",
+        "limit": 120,
+    }
+    path = f"/v1/projects/{project}/test-cases/huggingface"
+    first = await client.post(path, json=body)
+    assert first.status_code == 201
+    assert first.json() == {"imported": 117, "skipped": 3}
+    again = await client.post(path, json=body)
+    assert again.json() == {"imported": 0, "skipped": 120}
+
+    contains = await client.post(
+        path, json={**body, "grading": "contains", "limit": 1, "test_split": "holdout"}
+    )
+    assert contains.json()["imported"] == 1
+    async with app.state.sessions() as db:
+        cases = list(await db.scalars(select(TestCase)))
+    meaning = next(x for x in cases if "behavior" in x.expected)
+    assert "a" in meaning.expected["expected_reply"]
+    exact = next(x for x in cases if "reference" in x.expected)
+    assert (exact.expected["reference"], exact.split) == ("a0", "holdout")
+
+    wrong = await client.post(path, json={**body, "input_column": "nope"})
+    assert wrong.status_code == 422
+    assert wrong.json()["error"]["code"] == "unknown_column"
+
+
+async def test_huggingface_rejects_missing_and_invalid_datasets(api, monkeypatch):
+    client, _ = api
+    monkeypatch.setattr(
+        "app.routers.huggingface.safe_http_client",
+        lambda settings: huggingface_client([]),
+    )
+    missing = await client.get("/v1/huggingface/datasets?dataset=missing/set")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "dataset_not_found"
+    bad = await client.get("/v1/huggingface/datasets?dataset=../secret/x/y")
+    assert bad.status_code == 422
+
+
+async def test_default_credential_shares_the_credentials_rate_limit(api):
+    client, app = api
+    app.state.settings.credential_rate_limit = 1
+    app.state.settings.chat_rate_limit = 1000
+    body = {"provider": "custom", "model": "example-model", "api_key": "REPLACE_ME"}
+    assert (await client.post("/v1/credentials", json=body)).status_code == 201
+    limited = await client.post("/v1/credentials/default")
+    assert limited.status_code == 429
+
+
+async def test_huggingface_rejects_oversized_responses(api, monkeypatch):
+    client, _ = api
+    monkeypatch.setattr("app.routers.huggingface.MAX_RESPONSE_BYTES", 10)
+    monkeypatch.setattr(
+        "app.routers.huggingface.safe_http_client",
+        lambda settings: huggingface_client([]),
+    )
+    response = await client.get("/v1/huggingface/datasets?dataset=owner/name")
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "huggingface_too_large"
+
+
+async def test_huggingface_skips_oversized_replies(api, monkeypatch):
+    client, _ = api
+    monkeypatch.setattr("app.routers.huggingface.MAX_INPUT", 5)
+    rows = [{"question": "q", "answer": "too long"}, {"question": "r", "answer": "ok"}]
+    monkeypatch.setattr(
+        "app.routers.huggingface.safe_http_client",
+        lambda settings: huggingface_client(rows),
+    )
+    project = (await client.post("/v1/projects", json={"name": "Hub"})).json()["id"]
+    body = {
+        "dataset": "owner/name",
+        "config": "default",
+        "split": "train",
+        "input_column": "question",
+        "expected_column": "answer",
+    }
+    response = await client.post(
+        f"/v1/projects/{project}/test-cases/huggingface", json=body
+    )
+    assert response.json() == {"imported": 1, "skipped": 1}
+
+
+async def test_default_key_is_local_only_without_an_api_key(api):
+    _, app = api
+    settings = app.state.settings
+    settings.agentlab_unauthenticated_default_key = True
+    settings.meta_base_url = "https://example.com/v1"
+    settings.meta_model = "example-model"
+    settings.meta_api_key = SecretStr("server-side-meta-key")
+    transport = httpx.ASGITransport(app=app, client=("203.0.113.9", 123))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as remote:
+        status = await remote.get("/v1/credentials/default")
+        created = await remote.post("/v1/credentials/default")
+    assert status.json()["available"] is False
+    assert created.status_code == 403
+    assert created.json()["error"]["code"] == "default_credential_forbidden"
+
+    proxied = await api[0].post(
+        "/v1/credentials/default", headers={"X-Forwarded-For": "203.0.113.9"}
+    )
+    assert proxied.status_code == 403
+    public = await api[0].post(
+        "/v1/credentials/default", headers={"Host": "agentlab.example.com"}
+    )
+    assert public.status_code == 403
+    allowed = await api[0].get(
+        "/v1/credentials/default", headers={"Host": "127.0.0.1:8000"}
+    )
+    assert allowed.json()["available"] is True
+    settings.agentlab_unauthenticated_default_key = False
+    local = await api[0].post("/v1/credentials/default")
+    assert local.status_code == 403
+
+
+async def test_huggingface_routes_are_rate_limited(api, monkeypatch):
+    client, app = api
+    app.state.settings.huggingface_rate_limit = 1
+    monkeypatch.setattr(
+        "app.routers.huggingface.safe_http_client",
+        lambda settings: huggingface_client([]),
+    )
+    path = "/v1/huggingface/datasets?dataset=owner/name"
+    assert (await client.get(path)).status_code == 200
+    limited = await client.get(path)
+    assert limited.status_code == 429
+    assert limited.json()["error"]["code"] == "rate_limited"

@@ -1,6 +1,6 @@
-# TestLab Web
+# AgentLab Web
 
-ChatGPT-style frontend for TestLab: a conversational workspace (connect an agent, describe expected behavior, run tests) plus one unified dashboard (Overview, Runs, Traces, Improvements). Built against the Final Design Figma frames. React 19 + Vite 6, no component library — hand-rolled SVG for the pass-rate chart and span waterfall.
+ChatGPT-style frontend for AgentLab: a conversational workspace (connect an agent, describe expected behavior, run tests) plus one unified dashboard (Overview, Runs, Traces, Improvements). Built against the Final Design Figma frames. React 19 + Vite 6, no component library — hand-rolled SVG for the pass-rate chart and span waterfall.
 
 ## Quick start
 

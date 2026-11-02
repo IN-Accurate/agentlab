@@ -6,7 +6,9 @@ from app.db import record
 from app.errors import AppError
 from app.models import Assertion, AssertionResult, Diagnosis, TestCase
 from evaluator.diagnosis import Facts, classify, judge
+from evaluator.evaluate import run_evaluation, stream_chat
 from evaluator.llm import ModelClient, ModelError
+from evaluator.repair import run_repair, run_verify
 
 
 async def test_connection(payload, context):
@@ -78,7 +80,13 @@ async def run_diagnosis(payload, context):
     return {"id": str(row.id)}
 
 
-HANDLERS = {"test_connection": test_connection, "diagnose": run_diagnosis}
+HANDLERS = {
+    "test_connection": test_connection,
+    "diagnose": run_diagnosis,
+    "run": run_evaluation,
+    "repair": run_repair,
+    "verify": run_verify,
+}
 
 
 class Evaluator:
@@ -91,3 +99,6 @@ class Evaluator:
                 503,
             )
         return await handler(payload, context)
+
+    def stream_chat(self, payload, context):
+        return stream_chat(payload, context)

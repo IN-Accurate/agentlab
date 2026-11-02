@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../api.js';
+import { api, proposeFix } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { Empty, ErrorBox, Spinner, Verdict, fmtTime, shortId } from '../ui.jsx';
 
@@ -134,12 +134,8 @@ export default function RunsTab({
     setDiagnosing(true);
     setActionError('');
     try {
-      const body = chatCredentialId ? { credential_id: chatCredentialId } : {};
-      const diagnosis = await api(`/v1/run-results/${resultId}/diagnose`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-      onOpenReview({ diagnosisId: diagnosis.id });
+      const diagnosis = await proposeFix(resultId, chatCredentialId);
+      onOpenReview({ diagnosisId: diagnosis.id, repairError: diagnosis.repairError });
     } catch (e) {
       setActionError(e?.message ?? 'Could not diagnose this failure.');
     } finally {
@@ -419,7 +415,14 @@ function Evidence({ resultId, caseMap, onOpenTrace, onDiagnose, diagnosing, onCo
       <div className="evidence-io">
         <div>
           <p className="metric-label">Expected</p>
-          <p>{expected ? (expected.reference ?? JSON.stringify(expected)) : '—'}</p>
+          <p>
+            {expected
+              ? (expected.expected_reply ??
+                expected.behavior ??
+                expected.reference ??
+                JSON.stringify(expected))
+              : '—'}
+          </p>
         </div>
         <div>
           <p className="metric-label">Actual output</p>

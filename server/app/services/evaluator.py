@@ -94,7 +94,7 @@ async def prepare(
         agent = (version.config or {}).get("agent") or {}
         if agent.get("base_url"):
             await validate_url(
-                agent["base_url"], state.settings.testlab_allow_insecure_local
+                agent["base_url"], state.settings.agentlab_allow_insecure_local
             )
     cases = []
     if version and operation in {"run", "improve", "verify"}:

@@ -26,7 +26,7 @@ async def api():
     await connection.execute(f'CREATE SCHEMA "{schema}"')
     await connection.execute(f'SET search_path TO "{schema}"')
     await connection.execute(
-        (Path(__file__).parents[2] / "db/testlab_schema.sql").read_text()
+        (Path(__file__).parents[2] / "db/agentlab_schema.sql").read_text()
     )
     settings = Settings(_env_file=None, database_url=url)
     app = create_app(settings)

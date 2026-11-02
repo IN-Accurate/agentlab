@@ -1,4 +1,6 @@
 import httpx
+from cryptography.fernet import Fernet
+import pytest
 from fastapi import BackgroundTasks
 
 from app.config import Settings
@@ -10,7 +12,7 @@ from app.routers.jobs import submit
 def test_neon_url():
     settings = Settings(
         _env_file=None,
-        database_url="postgresql://example:REPLACE_ME@ep-example-pooler.example.com/testlab_test?sslmode=require&channel_binding=require",
+        database_url="postgresql://example:REPLACE_ME@ep-example-pooler.example.com/agentlab_test?sslmode=require&channel_binding=require",
     )
     url, args = settings.connection()
     assert url.drivername == "postgresql+asyncpg"
@@ -85,7 +87,7 @@ async def test_job_events_end_cleanly_when_job_expires():
 
 
 async def test_preflight_succeeds_with_api_key_set():
-    app = create_app(Settings(_env_file=None, testlab_api_key="test-key-123"))
+    app = create_app(Settings(_env_file=None, agentlab_api_key="test-key-123"))
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app), base_url="http://testserver"
     ) as client:
@@ -114,3 +116,34 @@ async def test_chunked_body_without_length_rejected():
     assert response.status_code == 411
     await response.aread()
     assert response.json()["error"]["code"] == "length_required"
+
+
+def test_old_api_key_name_stops_startup(monkeypatch):
+    monkeypatch.delenv("AGENTLAB_API_KEY", raising=False)
+    monkeypatch.setenv("TESTLAB_API_KEY", "old-key-123")
+    with pytest.raises(ValueError, match="AGENTLAB_API_KEY") as caught:
+        Settings(_env_file=None)
+    assert "old-key-123" not in str(caught.value)
+    assert Settings(_env_file=None, agentlab_api_key="new-key-123").agentlab_api_key
+
+
+def test_old_api_key_name_is_rejected_from_every_input(tmp_path, monkeypatch):
+    monkeypatch.delenv("AGENTLAB_API_KEY", raising=False)
+    monkeypatch.delenv("TESTLAB_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="AGENTLAB_API_KEY"):
+        Settings(_env_file=None, testlab_api_key="old-key-123")
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("TESTLAB_API_KEY=old-key-123\n")
+    with pytest.raises(ValueError, match="AGENTLAB_API_KEY"):
+        Settings(_env_file=dotenv)
+
+
+def test_unauthenticated_default_key_is_development_only():
+    with pytest.raises(ValueError, match="development-only"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            app_encryption_key=Fernet.generate_key().decode(),
+            agentlab_api_key="new-key-123",
+            agentlab_unauthenticated_default_key=True,
+        )

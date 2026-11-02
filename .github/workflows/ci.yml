@@ -14,7 +14,7 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: testlab_test
+          POSTGRES_DB: agentlab_test
         ports:
           - 5432:5432
         options: >-
@@ -23,7 +23,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      TEST_DATABASE_URL: postgresql://postgres@localhost:5432/testlab_test
+      TEST_DATABASE_URL: postgresql://postgres@localhost:5432/agentlab_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
