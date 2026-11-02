@@ -99,6 +99,8 @@ export default function App() {
     const loaded = loadChats();
     return loaded.length ? loaded : [newChat(null)];
   });
+  // One entry per project, newest first; each keeps the key it connected with.
+  const [agents, setAgents] = useState(loadAgents);
   const [activeId, setActiveId] = useState(null);
   const [view, setView] = useState('chat');
   const [dash, setDash] = useState({ tab: 'overview', projectId: null });
@@ -163,8 +165,6 @@ export default function App() {
   }, [theme]);
 
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
-  // One entry per project, newest first; each keeps the key it connected with.
-  const [agents, setAgents] = useState(loadAgents);
   const lastConnection = agents[0] ?? null;
   const agentKeys = Object.fromEntries(agents.map((a) => [a.projectId, a.credentialId]));
   const chatCredentialId =
