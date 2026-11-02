@@ -224,7 +224,8 @@ class Team:
         messages = [{"role": "system", "content": self.system(decision)}]
         messages += history or []
         messages.append({"role": "user", "content": query})
-        params = {**(self.config.get("params") or {}), **(params or {})}
+        # Members keep their own params; only request overrides reach them.
+        merged = {**(self.config.get("params") or {}), **(params or {})}
         try:
             for _ in range(MAX_ROUNDS):
                 limit = budget.charge()
@@ -232,7 +233,7 @@ class Team:
                     return self.fail(result, coordinator, limit_span(limit))
                 call_started = monotonic()
                 try:
-                    reply = await self.coordinator.complete(messages, tools, params)
+                    reply = await self.coordinator.complete(messages, tools, merged)
                 except ModelError as exc:
                     error = {"kind": exc.kind, "message": exc.message}
                     payload = {"model": self.coordinator.model, "error": error}

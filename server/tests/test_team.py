@@ -341,3 +341,31 @@ async def test_team_config_must_name_real_members(api, router, status):
         f"/v1/projects/{project}/versions", json={"config": config}
     )
     assert response.status_code == status, response.text
+
+
+async def test_members_keep_their_own_params(api, monkeypatch):
+    http, app = api
+    turns = iter(
+        [
+            reply(tool_calls=[call("ask_billing", {"task": "Refund?"})]),
+            reply("Done"),
+        ]
+    )
+    replies = {
+        "coordinator-model": lambda body: next(turns),
+        "billing-model": lambda body: reply("Refund approved"),
+    }
+    agents = Agents(http, app, monkeypatch, replies)
+    billing, billing_key = await agents.agent("billing")
+    shipping, shipping_key = await agents.agent("shipping")
+    config = team_config({"billing": billing, "shipping": shipping})
+    config["params"] = {"temperature": 0.9}
+    team, team_key = await agents.agent("coordinator", config)
+    body = {
+        "message": "refund",
+        "credential_id": team_key,
+        "member_credentials": {billing: billing_key, shipping: shipping_key},
+    }
+    await http.post(f"/v1/projects/{team}/chat", json=body)
+    sent = {model: body.get("temperature") for _, model, body in agents.calls}
+    assert sent == {"coordinator-model": 0.9, "billing-model": None}
