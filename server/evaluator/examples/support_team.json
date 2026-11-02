@@ -1,0 +1,38 @@
+{
+  "router": {
+    "type": "rules",
+    "rules": [
+      {
+        "member": "billing",
+        "keywords": ["refund", "invoice", "charge", "charged", "payment", "billing", "subscription", "price"]
+      },
+      {
+        "member": "shipping",
+        "keywords": ["shipping", "delivery", "deliver", "parcel", "package", "tracking", "courier", "shipped"]
+      }
+    ],
+    "fallback": "general"
+  },
+  "labelled": [
+    {"input": "I was charged twice for my order", "member": "billing"},
+    {"input": "Can I get a refund for the blue jacket?", "member": "billing"},
+    {"input": "Please resend my invoice for October", "member": "billing"},
+    {"input": "How do I cancel my subscription?", "member": "billing"},
+    {"input": "What is the price of the premium plan?", "member": "billing"},
+    {"input": "My payment failed at checkout", "member": "billing"},
+    {"input": "Where is my package?", "member": "shipping"},
+    {"input": "The courier left my parcel at the wrong door", "member": "shipping"},
+    {"input": "How long does delivery take to Pune?", "member": "shipping"},
+    {"input": "Do you offer free shipping?", "member": "shipping"},
+    {"input": "My tracking number does not work", "member": "shipping"},
+    {"input": "It says shipped but nothing arrived", "member": "shipping"},
+    {"input": "I want a refund because the package never arrived", "member": "billing"},
+    {"input": "What are your opening hours?", "member": "general"},
+    {"input": "Do you have this jacket in green?", "member": "general"},
+    {"input": "Hello!", "member": "general"},
+    {"input": "Can I change my account email?", "member": "general"},
+    {"input": "Is a prepayment discount available?", "member": "general"},
+    {"input": "Who makes the shipped-to-store sign?", "member": "shipping"},
+    {"input": "REFUND PLEASE", "member": "billing"}
+  ]
+}

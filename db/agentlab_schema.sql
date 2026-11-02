@@ -37,7 +37,8 @@ CREATE TABLE spans (
     trace_id        uuid NOT NULL REFERENCES traces(id) ON DELETE CASCADE,
     parent_span_id  uuid REFERENCES spans(id) ON DELETE CASCADE,
     sdk_span_id     text NOT NULL,   -- id assigned by the SDK, makes ingest idempotent
-    type            text NOT NULL CHECK (type IN ('llm', 'retrieval', 'tool', 'validation')),
+    type            text NOT NULL CHECK (type IN (
+                    'llm', 'retrieval', 'tool', 'validation', 'router', 'agent')),
     started_at      timestamptz,
     latency_ms      integer,
     status          text NOT NULL DEFAULT 'ok',

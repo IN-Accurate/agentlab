@@ -134,7 +134,7 @@ async def prepare(
         str(values[k])
         for k in ("credential_id", "judge_credential_id")
         if values.get(k)
-    }
+    } | {str(x) for x in (values.get("member_credentials") or {}).values()}
     for identifier in allowed:
         credential_record(identifier, state.credential_store)
     payload = {
