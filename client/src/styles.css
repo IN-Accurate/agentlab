@@ -421,6 +421,7 @@ summary:focus-visible {
   min-width: 0;
   padding: 20px 28px 40px;
   max-width: 1200px;
+  margin: 0 auto;
 }
 
 .page-head {
@@ -428,7 +429,8 @@ summary:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 12px;
+  min-height: 3rem;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 16px;
 }
@@ -455,7 +457,7 @@ summary:focus-visible {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 8px 16px;
+  padding: 10px 16px;
   cursor: pointer;
 }
 
@@ -535,6 +537,11 @@ summary:focus-visible {
 .field input:disabled,
 .field select:disabled {
   background: var(--sidebar);
+}
+
+.project-select {
+  width: auto;
+  margin-left: -12px;
 }
 
 .field-error {
@@ -653,6 +660,10 @@ select.project-select {
   margin: 0 auto;
 }
 
+.agents-narrow {
+  max-width: 560px;
+}
+
 .hero {
   font-size: 30px;
   margin: 32px 0 4px;
@@ -750,6 +761,23 @@ select.project-select {
   gap: 8px;
 }
 
+.connect-form .connect-actions {
+  margin-top: 24px;
+}
+
+.connect-form .connect-actions + .muted {
+  margin-top: 8px;
+}
+
+.connect-form > .muted {
+  margin-bottom: 0;
+}
+
+.connect-form .connect-actions .btn-primary {
+  flex: 1 1 auto;
+  background: var(--accent);
+}
+
 .bubble-user {
   background: var(--sidebar);
   border-radius: var(--radius-card);
@@ -845,7 +873,7 @@ select.project-select {
 
 .tabs {
   display: flex;
-  gap: 28px;
+  gap: 8px;
   border-bottom: 1px solid var(--accent);
   margin-bottom: 20px;
 }
@@ -853,7 +881,7 @@ select.project-select {
 .tabs button {
   background: none;
   border: none;
-  padding: 8px 2px 12px;
+  padding: 12px;
   cursor: pointer;
   color: var(--muted);
   font-weight: 500;
@@ -867,11 +895,29 @@ select.project-select {
   border-bottom-color: var(--accent);
 }
 
+.tabs button:first-child {
+  margin-left: -12px;
+}
+
 .metrics {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 24px;
-  margin: 8px 0 20px;
+  margin: 8px 0 0;
+}
+
+.metrics > div {
+  grid-column: span 2;
+}
+
+.accent-card {
+  border-color: var(--accent);
+  text-align: left;
+}
+
+.metrics .accent-card,
+.overview-bottom .accent-card {
+  margin: 0;
 }
 
 .metric-label {
@@ -936,11 +982,35 @@ select.project-select {
 
 .overview-bottom {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 32px;
-  border-top: 1px solid var(--accent);
-  margin-top: 20px;
-  padding-top: 16px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 24px;
+  margin: 20px 0 0;
+}
+
+.chart-card {
+  margin: 20px 0 0;
+}
+
+.chart-card .section-head {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.chart-card .section-head .muted {
+  margin-bottom: 0;
+}
+
+.chart-card .scroll-x {
+  margin-top: 12px;
+}
+
+.overview-bottom > div {
+  grid-column: span 3;
+}
+
+.overview-bottom h3 {
+  margin-top: 0;
 }
 
 .bars {
@@ -1354,6 +1424,11 @@ section pre {
   .metrics {
     grid-template-columns: 1fr;
     gap: 12px;
+  }
+
+  .metrics > div,
+  .overview-bottom > div {
+    grid-column: auto;
   }
 
   .progression {

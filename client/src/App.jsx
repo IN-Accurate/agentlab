@@ -368,7 +368,7 @@ export default function App() {
                 {lastConnection ? 'Agent connected' : 'Not connected'}
               </span>
             </header>
-            <div className="chat-narrow">
+            <div className="chat-narrow agents-narrow">
               {lastConnection && !changingAgent ? (
                 <section className="card connected-agent" aria-label="Connected agent">
                   <h2>Connected agent</h2>

@@ -126,7 +126,7 @@ export default function OverviewTab({ projectId, data, onReviewChange }) {
       <h2>Is the agent getting better?</h2>
       <p className="muted">Latest saved results, compared across immutable versions.</p>
       <div className="metrics">
-        <div>
+        <div className="card accent-card">
           <p className="metric-label">Latest pass rate</p>
           <p className={`metric-value ${latest ? 'good' : ''}`}>
             {latest ? fmtPct(latest.pass_rate, 0) : 'unavailable'}
@@ -137,11 +137,11 @@ export default function OverviewTab({ projectId, data, onReviewChange }) {
               : 'No completed runs'}
           </p>
         </div>
-        <div>
+        <div className="card accent-card">
           <p className="metric-label">Holdout</p>
           <HoldoutMetric change={change.data} />
         </div>
-        <div>
+        <div className="card accent-card">
           <p className="metric-label">Regressions</p>
           {change.loading ? (
             <p className="muted">…</p>
@@ -160,16 +160,18 @@ export default function OverviewTab({ projectId, data, onReviewChange }) {
           )}
         </div>
       </div>
-      <div className="section-head">
-        <h3>Pass rate by version</h3>
-        <span className="muted">Latest run per version</span>
-      </div>
-      <div className="scroll-x">
-        <TrendChart versions={versions} />
+      <div className="card accent-card chart-card">
+        <div className="section-head">
+          <h3>Pass rate by version</h3>
+          <span className="muted">Latest run per version</span>
+        </div>
+        <div className="scroll-x">
+          <TrendChart versions={versions} />
+        </div>
       </div>
       <div className="overview-bottom">
-        <div>
-          <p className="metric-label">Latest verified change</p>
+        <div className="card accent-card">
+          <h3>Latest verified change</h3>
           {change.loading ? (
             <Spinner />
           ) : change.error ? (
@@ -203,7 +205,7 @@ export default function OverviewTab({ projectId, data, onReviewChange }) {
             </>
           )}
         </div>
-        <div>
+        <div className="card accent-card">
           <h3>Diagnoses by rule</h3>
           {bars.length === 0 ? (
             <p className="muted">No diagnoses recorded.</p>
