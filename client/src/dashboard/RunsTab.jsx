@@ -135,7 +135,7 @@ export default function RunsTab({
     setActionError('');
     try {
       const diagnosis = await proposeFix(resultId, chatCredentialId);
-      onOpenReview({ diagnosisId: diagnosis.id });
+      onOpenReview({ diagnosisId: diagnosis.id, repairError: diagnosis.repairError });
     } catch (e) {
       setActionError(e?.message ?? 'Could not diagnose this failure.');
     } finally {

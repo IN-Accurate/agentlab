@@ -340,7 +340,13 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
         />
       )}
       {importing ? (
-        <HuggingFaceDialog projectId={project.id} onClose={() => setImporting(false)} />
+        <HuggingFaceDialog
+          projectId={project.id}
+          onClose={(imported) => {
+            setImporting(false);
+            if (imported) board.reload();
+          }}
+        />
       ) : null}
       {dialog ? (
         <RunEvalDialog

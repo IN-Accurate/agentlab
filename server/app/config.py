@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     agentlab_allow_insecure_local: bool = False
     agentlab_api_key: str | None = None
+    testlab_api_key: str | None = Field(default=None, exclude=True, repr=False)
     meta_api_key: SecretStr | None = None
     meta_base_url: str | None = None
     meta_model: str | None = None
@@ -22,6 +23,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def check_settings(self):
+        if self.testlab_api_key and not self.agentlab_api_key:
+            raise ValueError("Rename TESTLAB_API_KEY to AGENTLAB_API_KEY")
         if "*" in [origin.strip() for origin in self.cors_origins.split(",")]:
             raise ValueError("Use explicit CORS origins")
         if self.app_env == "production" and not self.app_encryption_key:

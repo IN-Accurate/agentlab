@@ -17,6 +17,11 @@ export default function ConnectForm({ initialEndpoint = '', initialModel = '', o
   const hasDefault = !!defaults.data?.available;
   const useDefault = hasDefault && !ownKey;
 
+  function editOwn(setValue, value) {
+    setOwnKey(true);
+    setValue(value);
+  }
+
   function validate() {
     const next = {};
     if (!/^https?:\/\/.+/.test(endpoint.trim()))
@@ -150,7 +155,7 @@ export default function ConnectForm({ initialEndpoint = '', initialModel = '', o
                 type="url"
                 value={endpoint}
                 placeholder="https://your-agent.com/v1"
-                onChange={(e) => setEndpoint(e.target.value)}
+                onChange={(e) => editOwn(setEndpoint, e.target.value)}
                 disabled={pending}
                 autoComplete="url"
               />
@@ -162,7 +167,7 @@ export default function ConnectForm({ initialEndpoint = '', initialModel = '', o
                 id={id}
                 value={model}
                 placeholder="e.g. llama-3.3-70b"
-                onChange={(e) => setModel(e.target.value)}
+                onChange={(e) => editOwn(setModel, e.target.value)}
                 disabled={pending}
                 autoComplete="off"
               />
@@ -175,7 +180,7 @@ export default function ConnectForm({ initialEndpoint = '', initialModel = '', o
                 type="password"
                 value={apiKey}
                 placeholder="Enter API key"
-                onChange={(e) => setApiKey(e.target.value)}
+                onChange={(e) => editOwn(setApiKey, e.target.value)}
                 disabled={pending}
                 autoComplete="new-password"
               />

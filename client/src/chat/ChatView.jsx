@@ -35,6 +35,7 @@ const SUGGESTED_TESTS = [
   },
 ];
 
+// The evaluator writes each test's input, including any text the task needs.
 const SUGGESTED_TASKS = [
   {
     label: 'Summarise a text',
@@ -305,7 +306,7 @@ export default function ChatView({
     setFindingFix(card.id);
     try {
       const diagnosis = await proposeFix(resultId, conn.credentialId);
-      onOpenReview({ diagnosisId: diagnosis.id });
+      onOpenReview({ diagnosisId: diagnosis.id, repairError: diagnosis.repairError });
     } catch (error) {
       setChatError(error?.message ?? 'Could not start the fix flow.');
     } finally {

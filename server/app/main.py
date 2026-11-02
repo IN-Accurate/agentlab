@@ -14,7 +14,7 @@ from starlette.exceptions import HTTPException
 from app.config import Settings
 from app.db import connect
 from app.errors import AppError, error_body
-from app.security import Redactor, RedactionFilter, rate_limit
+from app.security import CREDENTIAL_PATHS, Redactor, RedactionFilter, rate_limit
 from app.store import CredentialStore, JobStore
 from app.schemas import HealthResponse, MetaResponse
 from app.routers import (
@@ -32,7 +32,6 @@ from app.routers import (
 )
 
 MAX_BODY_BYTES = 10_000_000
-CREDENTIAL_PATHS = ("/v1/credentials", "/v1/credentials/default")
 
 
 def create_app(settings=None, evaluator=None):

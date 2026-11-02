@@ -7,7 +7,14 @@ from sqlalchemy import select
 
 import evaluator.llm
 from app.errors import AppError
-from app.models import Assertion, AssertionResult, Run, RunResult, TestCase, Trace
+from app.models import (
+    Assertion,
+    AssertionResult,
+    Run,
+    RunResult,
+    TestCase,
+    Trace,
+)
 from evaluator import Evaluator
 from evaluator.agent import (
     AgentResult,
@@ -21,7 +28,7 @@ from evaluator.agent import (
     validate,
 )
 from evaluator.diagnosis import Facts, classify, judge
-from evaluator.evaluate import prior_messages
+from evaluator.evaluate import draft_input, latest_version, prior_messages
 from evaluator.llm import ModelClient, ModelError
 from evaluator.repair import score
 
@@ -730,3 +737,67 @@ def test_numbers_are_not_unsupported_without_retrieved_text():
     for item in trace["spans"]:
         item["type"] = "retrieval"
     assert classify(Facts(trace, {"expected": {}}, [])) is None
+
+
+async def test_unaccepted_repairs_stay_out_of_chat_until_verified(api, monkeypatch):
+    http, app = api
+    p, v, c, _, diagnosis = await fix_loop_fixture(http, app, monkeypatch)
+
+    async def chosen():
+        async with app.state.sessions() as db:
+            return str((await latest_version(db, p)).id)
+
+    repair = (
+        await http.post(f"/v1/diagnoses/{diagnosis}/repairs", json={"credential_id": c})
+    ).json()
+    assert await chosen() == v
+    await verify_job(http, repair["id"], c)
+    assert await chosen() == repair["new_version_id"]
+
+
+async def test_rejected_repairs_stay_out_of_chat(api, monkeypatch):
+    http, app = api
+    p, v, c, _, diagnosis = await fix_loop_fixture(http, app, monkeypatch, fixed=False)
+    repair = (
+        await http.post(f"/v1/diagnoses/{diagnosis}/repairs", json={"credential_id": c})
+    ).json()
+    await verify_job(http, repair["id"], c)
+    async with app.state.sessions() as db:
+        assert str((await latest_version(db, p)).id) == v
+
+
+async def test_test_question_failure_is_reported():
+    with pytest.raises(AppError) as caught:
+        await draft_input(client(lambda r: completion("  ")), "behaviour", "")
+    assert caught.value.code == "test_input_failed"
+    denied = client(lambda r: httpx.Response(401, json={"error": {"message": "no"}}))
+    with pytest.raises(AppError):
+        await draft_input(denied, "behaviour", "")
+
+
+async def test_verify_needs_a_linked_test(api, monkeypatch):
+    http, app = api
+    p, v, c, _, diagnosis = await fix_loop_fixture(http, app, monkeypatch)
+    repair = (
+        await http.post(f"/v1/diagnoses/{diagnosis}/repairs", json={"credential_id": c})
+    ).json()
+    async with app.state.sessions() as db, db.begin():
+        for row in await db.scalars(select(RunResult)):
+            row.trace_id = None
+    job = await verify_job(http, repair["id"], c)
+    assert job["status"] == "failed"
+
+
+def test_prior_messages_keep_assistant_turns_matching_the_message():
+    history = [{"role": "assistant", "content": "hi"}]
+    assert prior_messages(history, "hi there") == history
+
+
+def test_prior_messages_keep_empty_turns():
+    history = [{"role": "user", "content": ""}]
+    assert prior_messages(history, "hi") == history
+
+
+def test_prior_messages_drop_error_notes_after_blank_lines():
+    history = [{"role": "assistant", "content": "\n\nError: failed"}]
+    assert prior_messages(history, "hi") == []

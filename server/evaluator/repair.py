@@ -20,11 +20,17 @@ VERIFY_PARAMS = {"temperature": 0}
 
 
 async def target_case(db, trace_id):
-    return await db.scalar(
+    trace_id = UUID(str(trace_id))
+    case = await db.scalar(
         select(TestCase)
         .join(RunResult, RunResult.test_case_id == TestCase.id)
-        .where(RunResult.trace_id == UUID(str(trace_id)))
+        .where(RunResult.trace_id == trace_id)
         .limit(1)
+    )
+    if case is not None:
+        return case
+    return await db.scalar(
+        select(TestCase).where(TestCase.source_trace_id == trace_id).limit(1)
     )
 
 
@@ -110,6 +116,10 @@ async def run_verify(payload, context):
     candidate = target.get("candidate_version")
     if candidate is None:
         raise AppError("no_candidate", "Repair has no candidate version", 422)
+    case = await target_case(context["session"], target["trace"]["id"])
+    if case is None:
+        raise AppError("no_target_test", "Repair has no test to verify against", 422)
+    case_id = str(case.id)
     cases = payload["test_cases"]
     progress = context.get("report_progress")
 
@@ -127,8 +137,7 @@ async def run_verify(payload, context):
         context, options, candidate, cases, VERIFY_PARAMS, half(1)
     )
     async with context["session_factory"]() as db, db.begin():
-        case = await target_case(db, target["trace"]["id"])
-        scores = score(cases, baseline, results, str(case.id) if case else "")
+        scores = score(cases, baseline, results, case_id)
         row = Verification(
             repair_id=UUID(str(target["id"])),
             baseline_run_id=base_run,

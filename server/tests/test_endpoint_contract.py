@@ -291,3 +291,47 @@ async def test_huggingface_rejects_missing_and_invalid_datasets(api, monkeypatch
     assert missing.json()["error"]["code"] == "dataset_not_found"
     bad = await client.get("/v1/huggingface/datasets?dataset=../secret/x/y")
     assert bad.status_code == 422
+
+
+async def test_default_credential_shares_the_credentials_rate_limit(api):
+    client, app = api
+    app.state.settings.credential_rate_limit = 1
+    app.state.settings.chat_rate_limit = 1000
+    body = {"provider": "custom", "model": "example-model", "api_key": "REPLACE_ME"}
+    assert (await client.post("/v1/credentials", json=body)).status_code == 201
+    limited = await client.post("/v1/credentials/default")
+    assert limited.status_code == 429
+
+
+async def test_huggingface_rejects_oversized_responses(api, monkeypatch):
+    client, _ = api
+    monkeypatch.setattr("app.routers.huggingface.MAX_RESPONSE_BYTES", 10)
+    monkeypatch.setattr(
+        "app.routers.huggingface.safe_http_client",
+        lambda settings: huggingface_client([]),
+    )
+    response = await client.get("/v1/huggingface/datasets?dataset=owner/name")
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "huggingface_too_large"
+
+
+async def test_huggingface_skips_oversized_replies(api, monkeypatch):
+    client, _ = api
+    monkeypatch.setattr("app.routers.huggingface.MAX_INPUT", 5)
+    rows = [{"question": "q", "answer": "too long"}, {"question": "r", "answer": "ok"}]
+    monkeypatch.setattr(
+        "app.routers.huggingface.safe_http_client",
+        lambda settings: huggingface_client(rows),
+    )
+    project = (await client.post("/v1/projects", json={"name": "Hub"})).json()["id"]
+    body = {
+        "dataset": "owner/name",
+        "config": "default",
+        "split": "train",
+        "input_column": "question",
+        "expected_column": "answer",
+    }
+    response = await client.post(
+        f"/v1/projects/{project}/test-cases/huggingface", json=body
+    )
+    assert response.json() == {"imported": 1, "skipped": 1}

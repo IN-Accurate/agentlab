@@ -1,4 +1,5 @@
 import httpx
+import pytest
 from fastapi import BackgroundTasks
 
 from app.config import Settings
@@ -114,3 +115,19 @@ async def test_chunked_body_without_length_rejected():
     assert response.status_code == 411
     await response.aread()
     assert response.json()["error"]["code"] == "length_required"
+
+
+def test_old_api_key_name_stops_startup(monkeypatch):
+    monkeypatch.setenv("TESTLAB_API_KEY", "old-key-123")
+    with pytest.raises(ValueError, match="AGENTLAB_API_KEY"):
+        Settings(_env_file=None)
+    assert Settings(_env_file=None, agentlab_api_key="new-key-123").agentlab_api_key
+
+
+def test_old_api_key_name_is_rejected_from_every_input(tmp_path):
+    with pytest.raises(ValueError, match="AGENTLAB_API_KEY"):
+        Settings(_env_file=None, testlab_api_key="old-key-123")
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("TESTLAB_API_KEY=old-key-123\n")
+    with pytest.raises(ValueError, match="AGENTLAB_API_KEY"):
+        Settings(_env_file=dotenv)

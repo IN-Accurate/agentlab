@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api } from '../api.js';
 import { Field, Modal } from '../ui.jsx';
 
@@ -33,6 +33,17 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(null);
+  const imported = useRef(false);
+
+  function close() {
+    if (!pending) onClose(imported.current);
+  }
+
+  function changeDataset(value) {
+    setDataset(value);
+    setPreview(null);
+    setDone(null);
+  }
 
   async function load(option) {
     const name = datasetName(dataset);
@@ -68,21 +79,21 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
     setPending(true);
     setError('');
     try {
-      setDone(
-        await api(`/v1/projects/${projectId}/test-cases/huggingface`, {
-          method: 'POST',
-          body: JSON.stringify({
-            dataset: preview.dataset,
-            config: preview.config,
-            split: preview.split,
-            input_column: inputColumn,
-            expected_column: replyColumn,
-            grading,
-            test_split: testSplit,
-            limit: Number(rowCount),
-          }),
+      const result = await api(`/v1/projects/${projectId}/test-cases/huggingface`, {
+        method: 'POST',
+        body: JSON.stringify({
+          dataset: preview.dataset,
+          config: preview.config,
+          split: preview.split,
+          input_column: inputColumn,
+          expected_column: replyColumn,
+          grading,
+          test_split: testSplit,
+          limit: Number(rowCount),
         }),
-      );
+      });
+      imported.current = true;
+      setDone(result);
     } catch (e) {
       setError(e?.message ?? 'Could not import the dataset.');
     } finally {
@@ -106,7 +117,7 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
   );
 
   return (
-    <Modal title="Import from Hugging Face" onClose={onClose}>
+    <Modal title="Import from Hugging Face" onClose={close}>
       <form onSubmit={submit}>
         <Field label="Public dataset">
           {(id) => (
@@ -114,7 +125,7 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
               id={id}
               value={dataset}
               placeholder="e.g. rag-datasets/rag-mini-wikipedia"
-              onChange={(e) => setDataset(e.target.value)}
+              onChange={(e) => changeDataset(e.target.value)}
               disabled={pending}
               autoComplete="off"
             />
@@ -200,7 +211,7 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
           </p>
         ) : null}
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose} disabled={pending}>
+          <button type="button" className="btn-secondary" onClick={close} disabled={pending}>
             {done ? 'Done' : 'Cancel'}
           </button>
           <button type="submit" className="btn-primary" disabled={pending || !preview}>

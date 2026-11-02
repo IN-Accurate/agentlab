@@ -16,6 +16,7 @@ router = APIRouter(prefix="/v1", tags=["Hugging Face"])
 
 HF_URL = "https://datasets-server.huggingface.co"
 HF_TIMEOUT = 30.0
+MAX_RESPONSE_BYTES = 20_000_000
 PAGE_SIZE = 100
 PREVIEW_ROWS = 3
 MAX_INPUT = 32000
@@ -24,20 +25,29 @@ DATASET_PATTERN = r"^[\w.-]+(/[\w.-]+)?$"
 
 async def fetch(client, path, params):
     try:
-        response = await client.get(
-            f"{HF_URL}/{path}", params=params, timeout=HF_TIMEOUT
-        )
-        if response.status_code in {401, 403, 404}:
-            raise AppError(
-                "dataset_not_found",
-                "Dataset not found, private, or not available in the viewer",
-                404,
-            )
-        if response.status_code != 200:
-            raise AppError(
-                "huggingface_unavailable", "Hugging Face could not read it", 502
-            )
-        return response.json()
+        async with client.stream(
+            "GET", f"{HF_URL}/{path}", params=params, timeout=HF_TIMEOUT
+        ) as response:
+            if response.status_code in {401, 403, 404}:
+                raise AppError(
+                    "dataset_not_found",
+                    "Dataset not found, private, or not available in the viewer",
+                    404,
+                )
+            if response.status_code != 200:
+                raise AppError(
+                    "huggingface_unavailable", "Hugging Face could not read it", 502
+                )
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                body += chunk
+                if len(body) > MAX_RESPONSE_BYTES:
+                    raise AppError(
+                        "huggingface_too_large",
+                        "Hugging Face response is too large",
+                        502,
+                    )
+        return json.loads(body)
     except (httpx.HTTPError, ValueError) as exc:
         raise AppError(
             "huggingface_unavailable", "Could not reach Hugging Face", 502
@@ -138,6 +148,8 @@ async def import_rows(
                 break
     if rows and {data.input_column, data.expected_column} - set(columns):
         raise AppError("unknown_column", "Dataset has no such column", 422)
+    # Serializes imports per project so two runs cannot add the same rows.
+    await db.execute(select(Project.id).where(Project.id == id).with_for_update())
     existing = await db.execute(
         select(TestCase.input, TestCase.expected).where(
             TestCase.project_id == id, TestCase.archived_at.is_(None)
@@ -150,7 +162,7 @@ async def import_rows(
         reply = cell(row.get(data.expected_column))
         expected = expected_for(data, reply)
         mark = fingerprint(text, expected)
-        if not text or not reply or mark in seen:
+        if not text or not reply or len(reply) > MAX_INPUT or mark in seen:
             skipped += 1
             continue
         seen.add(mark)

@@ -112,14 +112,23 @@ export default function ImprovementsTab({
 
   if (loaded.loading) return <Spinner />;
   if (loaded.error) return <ErrorBox error={loaded.error} onRetry={loaded.reload} />;
-  const { repairs, chain } = loaded.data;
+  const { chain } = loaded.data;
+  const repairError = dash.review?.repairError ? (
+    <p className="field-error" role="alert">
+      Diagnosis saved, but no repair was created: {dash.review.repairError}
+    </p>
+  ) : null;
   if (!chain)
     return (
-      <Empty
-        title="No improvement reviews yet"
-        hint="Diagnose a failed result or trace to propose your first change."
-      />
+      <>
+        {repairError}
+        <Empty
+          title="No improvement reviews yet"
+          hint="Diagnose a failed result or trace to propose your first change."
+        />
+      </>
     );
+  const { repairs } = loaded.data;
 
   const { diagnosis, repair, verification, scorecard, candidate, baselineId, diff, lineage } = chain;
   const candLabel = labels[candidate.id] ?? shortId(candidate.id);
@@ -152,6 +161,7 @@ export default function ImprovementsTab({
 
   return (
     <div className="improvements">
+      {repairError}
       <h2>Did the change actually fix it?</h2>
       <p className="muted">Review the controlled replay, candidate patch, and verification verdict.</p>
       <div className="section-head">
