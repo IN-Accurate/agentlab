@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
+import { fetchCache } from './fetchCache.js';
+
+function initialState(key) {
+  if (!key) return { key, data: null, error: null, loading: false };
+  const hit = fetchCache.getCached(key);
+  if (hit !== undefined) return { key, data: hit, error: null, loading: false };
+  return { key, data: null, error: null, loading: true };
+}
 
 export function useFetch(key, fetcher) {
-  const [state, setState] = useState({ key, data: null, error: null, loading: !!key });
+  const [state, setState] = useState(() => initialState(key));
   const reload = useCallback(() => {
     if (!key) {
       setState({ key, data: null, error: null, loading: false });
@@ -13,7 +21,7 @@ export function useFetch(key, fetcher) {
         ? { ...s, loading: true, error: null }
         : { key, data: null, error: null, loading: true },
     );
-    fetcher().then(
+    fetchCache.fetchShared(key, fetcher, { bypass: true }).then(
       (data) => {
         if (!cancelled)
           setState((s) => (s.key === key ? { key, data, error: null, loading: false } : s));
@@ -28,7 +36,18 @@ export function useFetch(key, fetcher) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  useEffect(() => reload(), [reload]);
+  useEffect(() => {
+    if (!key) {
+      setState({ key, data: null, error: null, loading: false });
+      return;
+    }
+    const hit = fetchCache.getCached(key);
+    if (hit !== undefined) {
+      setState({ key, data: hit, error: null, loading: false });
+      return;
+    }
+    reload();
+  }, [key, reload]);
   const current = state.key === key;
   return {
     data: current ? state.data : null,

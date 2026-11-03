@@ -273,7 +273,7 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
             <button type="button" className="btn-secondary" onClick={() => setImporting(true)}>
               Import from Hugging Face
             </button>
-            <button type="button" className="btn-primary" onClick={() => setDialog(true)}>
+            <button type="button" className="btn-primary btn-accent" onClick={() => setDialog(true)}>
               Run evaluation
             </button>
           </div>

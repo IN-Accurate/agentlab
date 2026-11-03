@@ -1,11 +1,20 @@
-import { useCallback, useEffect, useState } from 'react';
-import ChatView from './chat/ChatView.jsx';
-import ConnectForm from './chat/ConnectForm.jsx';
-import DashboardView from './dashboard/DashboardView.jsx';
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { dedupeConnections, upsertAgent } from './agents.js';
+import { trimChatsForPersist } from './chatStorage.js';
+import { RECENT_LIMIT, chatCreatedAt, groupChats, visibleChats } from './chatGroups.js';
+import { loadUi, saveUi } from './uiState.js';
+import LogoMark from './LogoMark.jsx';
+import { Spinner } from './ui.jsx';
+
+const ChatView = lazy(() => import('./chat/ChatView.jsx'));
+const ConnectForm = lazy(() => import('./chat/ConnectForm.jsx'));
+const DashboardView = lazy(() => import('./dashboard/DashboardView.jsx'));
 
 const STORE_KEY = 'agentlab.chats.v1';
 const OLD_STORE_KEY = 'testlab.chats.v1';
+const AGENTS_KEY = 'agentlab.agents.v1';
 const THEME_KEY = 'agentlab.theme';
+const GROUP_KEY = 'agentlab.chatGroup';
 const THEME_OPTIONS = ['light', 'dark', 'system'];
 
 function ThemeIcon({ name }) {
@@ -46,6 +55,7 @@ function loadChats() {
     if (!raw) return [];
     return JSON.parse(raw).map((c) => ({
       ...c,
+      createdAt: chatCreatedAt(c),
       streaming: false,
       messages: (c.messages ?? []).map((m) => ({
         ...m,
@@ -59,9 +69,91 @@ function loadChats() {
   }
 }
 
+function loadAgents() {
+  try {
+    const raw = localStorage.getItem(AGENTS_KEY);
+    if (raw) return dedupeConnections(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+  // Backfill once for profiles stored before agents had their own key.
+  try {
+    const chatsRaw = localStorage.getItem(STORE_KEY) ?? localStorage.getItem(OLD_STORE_KEY);
+    if (!chatsRaw) return [];
+    return dedupeConnections(JSON.parse(chatsRaw).map((c) => c.connection));
+  } catch {
+    return [];
+  }
+}
+
+function persistChats(chats) {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(trimChatsForPersist(chats)));
+  } catch {
+    // Private browsing / quota: conversations last for this tab only.
+  }
+}
+
+// Memoized on primitives + stable callbacks so streaming updates (which only
+// change messages) don't re-render sidebar rows.
+const ChatRow = memo(function ChatRow({
+  id,
+  title,
+  selected,
+  armed,
+  deletable,
+  onOpen,
+  onArm,
+  onConfirm,
+}) {
+  return (
+    <li className="chat-row">
+      {armed ? (
+        <span
+          className="chat-del-confirm"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') onArm(null);
+          }}
+        >
+          <span className="chat-del-text">Delete this chat?</span>
+          <button type="button" className="chat-del-yes" autoFocus onClick={() => onConfirm(id)}>
+            Delete
+          </button>
+          <button type="button" onClick={() => onArm(null)}>
+            Cancel
+          </button>
+        </span>
+      ) : (
+        <>
+          <button
+            type="button"
+            className={selected ? 'selected' : ''}
+            onClick={() => onOpen(id)}
+            title={title}
+          >
+            {title}
+          </button>
+          {deletable && (
+            <button
+              type="button"
+              className="chat-del"
+              aria-label={`Delete ${title}`}
+              title="Delete chat"
+              onClick={() => onArm(id)}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          )}
+        </>
+      )}
+    </li>
+  );
+});
+
 function newChat(connection) {
   return {
     id: `c${Date.now()}`,
+    createdAt: Date.now(),
     title: 'New chat',
     titleSet: false,
     connection: connection ? { ...connection, ownProject: false } : null,
@@ -75,11 +167,23 @@ export default function App() {
     const loaded = loadChats();
     return loaded.length ? loaded : [newChat(null)];
   });
-  const [activeId, setActiveId] = useState(null);
-  const [view, setView] = useState('chat');
-  const [dash, setDash] = useState({ tab: 'overview', projectId: null });
+  // One entry per project, newest first; each keeps the key it connected with.
+  const [agents, setAgents] = useState(loadAgents);
+  const [savedUi] = useState(loadUi);
+  const [activeId, setActiveId] = useState(savedUi.activeId);
+  const [view, setView] = useState(savedUi.view);
+  const [dash, setDash] = useState(savedUi.dash);
   const [menuOpen, setMenuOpen] = useState(false);
   const [changingAgent, setChangingAgent] = useState(false);
+  const [chatsExpanded, setChatsExpanded] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [groupMode, setGroupMode] = useState(() => {
+    try {
+      return localStorage.getItem(GROUP_KEY) === 'agent' ? 'agent' : 'date';
+    } catch {
+      return 'date';
+    }
+  });
   const [theme, setTheme] = useState(() => {
     try {
       const saved = localStorage.getItem(THEME_KEY);
@@ -89,13 +193,39 @@ export default function App() {
     }
   });
 
+  const chatsRef = useRef(chats);
+  useEffect(() => {
+    chatsRef.current = chats;
+    // Streams update chats per token; trailing debounce avoids
+    // re-serializing every conversation on each one.
+    const timer = setTimeout(() => persistChats(chatsRef.current), 500);
+    return () => clearTimeout(timer);
+  }, [chats]);
+  useEffect(() => {
+    const flush = () => persistChats(chatsRef.current);
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, []);
+
   useEffect(() => {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(chats));
+      localStorage.setItem(AGENTS_KEY, JSON.stringify(agents));
     } catch {
-      // Private browsing: conversations last for this tab only.
+      // Private browsing: connections last for this tab only.
     }
-  }, [chats]);
+  }, [agents]);
+
+  useEffect(() => {
+    saveUi({ view, activeId, dash });
+  }, [view, activeId, dash]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(GROUP_KEY, groupMode);
+    } catch {
+      // Private browsing: grouping lasts for this tab only.
+    }
+  }, [groupMode]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -114,11 +244,7 @@ export default function App() {
   }, [theme]);
 
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
-  const lastConnection = chats.find((c) => c.connection)?.connection ?? null;
-  // One entry per project, newest first; each keeps the key it connected with.
-  const agents = chats
-    .map((c) => c.connection)
-    .filter((conn, i, all) => conn && all.findIndex((x) => x?.projectId === conn.projectId) === i);
+  const lastConnection = agents[0] ?? null;
   const agentKeys = Object.fromEntries(agents.map((a) => [a.projectId, a.credentialId]));
   const chatCredentialId =
     chats.find((c) => c.connection?.projectId === dash.projectId)?.connection
@@ -128,11 +254,19 @@ export default function App() {
     setDash((d) => ({ ...d, ...patch }));
   }, []);
 
-  function openChat(id) {
+  function goHome(event) {
+    event.preventDefault();
+    setActiveId(null);
+    setView('dashboard');
+    setMenuOpen(false);
+  }
+
+  const openChat = useCallback((id) => {
     setActiveId(id);
     setView('chat');
     setMenuOpen(false);
-  }
+    setPendingDelete(null);
+  }, []);
 
   function createChat(connection = lastConnection) {
     const chat = newChat(connection);
@@ -140,11 +274,28 @@ export default function App() {
     setActiveId(chat.id);
     setView('chat');
     setMenuOpen(false);
+    setPendingDelete(null);
   }
 
   function patchChat(id, fn) {
     setChats((cs) => cs.map((c) => (c.id === id ? fn(c) : c)));
   }
+
+  const deleteChat = useCallback((id) => {
+    // Removes the local conversation only; traces, tests and projects
+    // are evidence and stay.
+    setPendingDelete(null);
+    const next = chatsRef.current.filter((c) => c.id !== id);
+    if (next.length) {
+      setChats(next);
+    } else {
+      // Never strand the app with zero chats: with no active chat the
+      // main area falls through to the dashboard.
+      const fresh = newChat(null);
+      setChats([fresh]);
+      setActiveId(fresh.id);
+    }
+  }, []);
 
   function openAgentManager() {
     setChangingAgent(false);
@@ -153,6 +304,7 @@ export default function App() {
   }
 
   function connectAgent(connection) {
+    setAgents((as) => upsertAgent(as, connection));
     const chat = activeChat && !activeChat.connection ? activeChat : newChat(null);
     setChats((cs) => [
       { ...chat, connection },
@@ -164,6 +316,13 @@ export default function App() {
     setChangingAgent(false);
     setView('agents');
     setMenuOpen(false);
+  }
+
+  function disconnectAgent(projectId) {
+    setAgents((as) => as.filter((a) => a.projectId !== projectId));
+    setChats((cs) =>
+      cs.map((c) => (c.connection?.projectId === projectId ? { ...c, connection: null } : c)),
+    );
   }
 
   function openEvidence({ runId, resultId }) {
@@ -181,6 +340,11 @@ export default function App() {
     else createChat();
   }
 
+  const groups = useMemo(
+    () => groupChats(visibleChats(chats, chatsExpanded), groupMode),
+    [chats, chatsExpanded, groupMode],
+  );
+
   return (
     <div className="app">
       <button
@@ -192,26 +356,66 @@ export default function App() {
         ☰
       </button>
       <aside className={`sidebar${menuOpen ? ' open' : ''}`}>
-        <div className="brand">AgentLab</div>
-        <button type="button" className="new-chat" onClick={() => createChat()}>
+        <a className="brand-link" href="#/" onClick={goHome}>
+          <LogoMark />
+          <span>AgentLab</span>
+        </a>
+        <button type="button" className="new-chat" onClick={createChat}>
           <span aria-hidden="true">＋</span> New chat
         </button>
         <nav aria-label="Recent chats">
-          <p className="sidebar-heading">Recent chats</p>
-          <ul>
-            {chats.map((c) => (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  className={view === 'chat' && activeChat?.id === c.id ? 'selected' : ''}
-                  onClick={() => openChat(c.id)}
-                  title={c.title}
-                >
-                  {c.title}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="sidebar-heading-row">
+            <p className="sidebar-heading">Recent chats</p>
+            <div className="group-toggle" role="group" aria-label="Group chats by">
+              <button
+                type="button"
+                aria-pressed={groupMode === 'date'}
+                onClick={() => setGroupMode('date')}
+              >
+                Date
+              </button>
+              <button
+                type="button"
+                aria-pressed={groupMode === 'agent'}
+                onClick={() => setGroupMode('agent')}
+              >
+                Agent
+              </button>
+            </div>
+          </div>
+          {groups.map((group) => (
+            <div key={group.key} className="chat-group">
+              <p className="chat-group-heading">{group.label}</p>
+              <ul>
+                {group.chats.map((c) => (
+                  <ChatRow
+                    key={c.id}
+                    id={c.id}
+                    title={c.title}
+                    selected={view === 'chat' && activeChat?.id === c.id}
+                    armed={pendingDelete === c.id}
+                    deletable={chats.length > 1 || (c.messages?.length ?? 0) > 0 || !!c.titleSet}
+                    onOpen={openChat}
+                    onArm={setPendingDelete}
+                    onConfirm={deleteChat}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
+          {chats.length > RECENT_LIMIT && (
+            <button
+              type="button"
+              className="see-more"
+              aria-expanded={chatsExpanded}
+              onClick={() => {
+                setChatsExpanded((v) => !v);
+                setPendingDelete(null);
+              }}
+            >
+              {chatsExpanded ? 'Show less' : `See more (${chats.length - RECENT_LIMIT} more)`}
+            </button>
+          )}
         </nav>
         <hr className="sidebar-divider" />
         <button
@@ -264,6 +468,7 @@ export default function App() {
         </div>
       </aside>
       <main className="main">
+        <Suspense fallback={<Spinner />}>
         {view === 'agents' ? (
           <div>
             <header className="page-head">
@@ -276,7 +481,7 @@ export default function App() {
                     : 'Not connected'}
               </span>
             </header>
-            <div className="chat-narrow">
+            <div className="chat-narrow agents-narrow">
               {agents.length && !changingAgent ? (
                 <>
                   <ul className="agent-list">
@@ -290,9 +495,18 @@ export default function App() {
                             <dt>Endpoint</dt>
                             <dd>{agent.endpoint}</dd>
                           </dl>
-                          <button type="button" className="btn-secondary" onClick={() => createChat(agent)}>
-                            New chat with this agent
-                          </button>
+                          <div className="connect-actions">
+                            <button type="button" className="btn-secondary" onClick={() => createChat(agent)}>
+                              New chat with this agent
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => disconnectAgent(agent.projectId)}
+                            >
+                              Disconnect
+                            </button>
+                          </div>
                         </section>
                       </li>
                     ))}
@@ -329,6 +543,7 @@ export default function App() {
             onContinueInChat={continueInChat}
           />
         )}
+        </Suspense>
       </main>
     </div>
   );

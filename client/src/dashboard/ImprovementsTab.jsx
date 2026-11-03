@@ -45,16 +45,15 @@ async function projectRepairs(projectId) {
     cursor = page.next_cursor ?? null;
     if (!cursor) break;
   }
-  const out = [];
-  for (const repair of all) {
-    try {
-      const diagnosis = await api(`/v1/diagnoses/${repair.diagnosis_id}`);
-      out.push({ repair, diagnosis });
-    } catch {
-      continue;
-    }
-  }
-  return out.sort((a, b) => (String(a.repair.created_at) < String(b.repair.created_at) ? 1 : -1));
+  const settled = await Promise.allSettled(
+    all.map((repair) =>
+      api(`/v1/diagnoses/${repair.diagnosis_id}`).then((diagnosis) => ({ repair, diagnosis })),
+    ),
+  );
+  return settled
+    .filter((s) => s.status === 'fulfilled')
+    .map((s) => s.value)
+    .sort((a, b) => (String(a.repair.created_at) < String(b.repair.created_at) ? 1 : -1));
 }
 
 async function loadChain(projectId, review) {
@@ -193,19 +192,21 @@ export default function ImprovementsTab({
           )}
         </span>
       </div>
-      <label className="muted">
-        Review{' '}
-        <select
-          value={repair.id}
-          onChange={(e) => patchDash({ review: { repairId: e.target.value } })}
-        >
-          {repairs.map(({ repair: r, diagnosis: d }) => (
-            <option key={r.id} value={r.id}>
-              {r.patch_type} · {d.rule} · {shortId(r.id)}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="card accent-card">
+        <label className="muted">
+          Review{' '}
+          <select
+            value={repair.id}
+            onChange={(e) => patchDash({ review: { repairId: e.target.value } })}
+          >
+            {repairs.map(({ repair: r, diagnosis: d }) => (
+              <option key={r.id} value={r.id}>
+                {r.patch_type} · {d.rule} · {shortId(r.id)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <ol className="progression">
         <li>
           <strong>1 Diagnose</strong>

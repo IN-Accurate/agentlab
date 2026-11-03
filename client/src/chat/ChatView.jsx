@@ -355,7 +355,7 @@ export default function ChatView({
           <div className="chat-narrow">
             <h2 className="hero">Connect an agent to get started</h2>
             <p className="muted">Please connect an agent from the Agent Manager.</p>
-            <button type="button" className="btn-secondary" onClick={onOpenAgentManager}>
+            <button type="button" className="btn-secondary btn-accent" onClick={onOpenAgentManager}>
               Open Agent Manager
             </button>
           </div>
