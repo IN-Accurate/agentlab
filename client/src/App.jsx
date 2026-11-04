@@ -268,8 +268,9 @@ export default function App() {
     setPendingDelete(null);
   }, []);
 
-  function createChat(connection = lastConnection) {
-    const chat = newChat(connection);
+  function createChat(connection) {
+    const conn = connection?.projectId ? connection : lastConnection;
+    const chat = newChat(conn);
     setChats((cs) => [chat, ...cs]);
     setActiveId(chat.id);
     setView('chat');
@@ -360,7 +361,7 @@ export default function App() {
           <LogoMark />
           <span>AgentLab</span>
         </a>
-        <button type="button" className="new-chat" onClick={createChat}>
+        <button type="button" className="new-chat" onClick={() => createChat()}>
           <span aria-hidden="true">＋</span> New chat
         </button>
         <nav aria-label="Recent chats">
