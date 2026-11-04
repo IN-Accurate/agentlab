@@ -1,6 +1,8 @@
 # AgentLab
 
-> **Meta Global AI Developer Hackathon submission** · Team IN-Accurate (Vishal, Deeptika, Sumit, Siddhanth). A failure-to-fix workbench for applications built on Meta's models: turn a bad answer into a reproducible test, isolate the root cause, propose a fix, and prove it doesn't break anything else.
+> **Meta Global AI Developer Hackathon submission** · Team Promptimists (Vishal, Deeptika, Sumit, Siddhanth) · Code: https://github.com/IN-Accurate/agentlab
+>
+> A failure-to-fix workbench for applications built on Meta's models: turn a bad answer into a reproducible test, isolate the root cause, propose a fix, and prove it doesn't break anything else.
 
 ---
 
