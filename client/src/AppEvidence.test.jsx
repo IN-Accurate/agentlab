@@ -37,10 +37,14 @@ vi.mock('./dashboard/DashboardView.jsx', () => ({
 }));
 
 const agent = (projectId) => ({
+  id: projectId,
   projectId,
   credentialId: `key-${projectId}`,
   model: 'muse-spark-1.3',
   endpoint: 'https://api.meta.ai/v1',
+  isDefault: projectId === 'project-a',
+  connectedAt: Date.now(),
+  expiresAt: Date.now() + 2 * 60 * 60 * 1000,
 });
 
 function currentSelection() {
@@ -56,7 +60,7 @@ beforeEach(() => {
   })));
   const agents = [agent('project-a'), agent('project-b'), agent('project-c')];
   localStorage.setItem('agentlab.agents.v1', JSON.stringify(agents));
-  localStorage.setItem('agentlab.chats.v1', JSON.stringify(agents.map((connection) => ({
+  localStorage.setItem('agentlab.chats.v1', JSON.stringify(agents.slice(0, 2).map((connection) => ({
     id: `chat-${connection.projectId}`,
     title: `Chat ${connection.projectId}`,
     titleSet: true,
@@ -86,13 +90,13 @@ describe('chat evidence navigation', () => {
     evidence.target = { projectId, runId: 'selected-run', resultId: 'selected-result' };
     render(<App />);
 
-    await screen.findByLabelText('Dashboard selection');
+    await screen.findByLabelText('Dashboard selection', {}, { timeout: 5000 });
     expect(currentSelection().dash.projectId).toBe('project-a');
     fireEvent.click(screen.getByRole('button', { name: 'Set previous Dashboard selections' }));
     expect(currentSelection().dash.runVersion).toBe('old-version');
 
     fireEvent.click(screen.getByRole('button', { name: 'Chat project-b', exact: true }));
-    fireEvent.click(await screen.findByRole('button', { name: 'View evidence in Dashboard' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'View evidence in Dashboard' }, { timeout: 5000 }));
 
     await screen.findByLabelText('Dashboard selection');
     expect(currentSelection()).toEqual({

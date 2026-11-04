@@ -5,6 +5,7 @@ import {
   RECENT_LIMIT,
   agentKey,
   agentLabel,
+  chatAgentId,
   chatCreatedAt,
   dateGroupFor,
   groupChats,
@@ -24,6 +25,14 @@ describe('chatCreatedAt', () => {
   it('falls back to 0 for unknown ids', () => {
     assert.equal(chatCreatedAt({ id: 'legacy-chat' }), 0);
     assert.equal(chatCreatedAt({}), 0);
+  });
+});
+
+describe('chatAgentId', () => {
+  it('prefers an explicit agentId and backfills from the connection', () => {
+    assert.equal(chatAgentId({ agentId: 'p1', connection: { projectId: 'p2' } }), 'p1');
+    assert.equal(chatAgentId({ connection: { projectId: 'p2' } }), 'p2');
+    assert.equal(chatAgentId({}), null);
   });
 });
 

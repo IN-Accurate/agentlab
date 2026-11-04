@@ -8,13 +8,14 @@ import { streamChat } from '../api.js';
 vi.mock('../api.js', () => ({ api: vi.fn(), proposeFix: vi.fn(), streamChat: vi.fn() }));
 
 const connection = { projectId: 'project', credentialId: 'key', model: 'muse-spark' };
+const agent = { ...connection, id: 'project', isDefault: true, expiresAt: Date.now() + 3600000 };
 let emit;
 let finish;
 let reject;
 
 function Harness() {
   const [chat, setChat] = useState({ id: 'chat', title: 'New chat', connection, messages: [], streaming: false });
-  return <ChatView chat={chat} onPatch={(_id, update) => setChat(update)} />;
+  return <ChatView chat={chat} agents={[agent]} onPatch={(_id, update) => setChat(update)} />;
 }
 
 beforeEach(() => {

@@ -12,10 +12,14 @@ vi.mock('./api.js', () => ({
 }));
 
 const agent = {
+  id: 'saved-project',
   projectId: 'saved-project',
   credentialId: 'saved-credential',
   model: 'muse-spark-1.3',
   endpoint: 'https://api.meta.ai/v1',
+  isDefault: true,
+  connectedAt: Date.now(),
+  expiresAt: Date.now() + 2 * 60 * 60 * 1000,
 };
 
 function draft(id, title = 'New chat', overrides = {}) {
@@ -31,8 +35,8 @@ function draft(id, title = 'New chat', overrides = {}) {
   };
 }
 
-function saveChats(chats, activeId = chats[0]?.id) {
-  localStorage.setItem('agentlab.agents.v1', JSON.stringify([agent]));
+function saveChats(chats, activeId = chats[0]?.id, storedAgents = [agent]) {
+  localStorage.setItem('agentlab.agents.v1', JSON.stringify(storedAgents));
   localStorage.setItem('agentlab.chats.v1', JSON.stringify(chats));
   localStorage.setItem('agentlab.ui.v1', JSON.stringify({ view: 'chat', activeId }));
 }
@@ -70,11 +74,21 @@ describe('saved agent and chat state', () => {
 
     const message = await screen.findByRole('textbox', { name: 'Message' }, { timeout: 5000 });
     expect(message.disabled).toBe(false);
-    expect(screen.getByText(`Agent: ${agent.model}`)).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Chat agent' }).value).toBe(agent.id);
     expect(screen.getByRole('heading', { name: 'What should we test?' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Connect an agent to get started' })).toBeNull();
     expect(api).not.toHaveBeenCalled();
     expect(streamChat).not.toHaveBeenCalled();
+  });
+
+  it('uses the designated default for startup and New chat even when another agent is newer', async () => {
+    const newest = { ...agent, id: 'newer-project', projectId: 'newer-project', model: 'Other model', isDefault: false };
+    saveChats([draft('startup', 'Existing draft')], undefined, [newest, agent]);
+    render(<App />);
+    const selector = await screen.findByRole('combobox', { name: 'Chat agent' }, { timeout: 5000 });
+    expect(selector.value).toBe(agent.id);
+    fireEvent.click(screen.getByRole('button', { name: 'New chat', exact: true }));
+    expect(screen.getByRole('combobox', { name: 'Chat agent' }).value).toBe(agent.id);
   });
 
   it('clears an unsent message, context, and selected suggestion when switching chats', async () => {
@@ -119,7 +133,7 @@ describe('saved agent and chat state', () => {
     expect(screen.getByRole('heading', { name: 'New chat' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'What should we test?' })).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Message' }).disabled).toBe(false);
-    expect(screen.getByText(`Agent: ${agent.model}`)).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Chat agent' }).value).toBe(agent.id);
     expect(screen.queryByText('Previous message')).toBeNull();
     expect(api).not.toHaveBeenCalled();
     expect(streamChat).not.toHaveBeenCalled();

@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { FIRST_DEFAULT_NOTE, defaultFormState, replaceDefaultNote } from '../agentStore.js';
 import { api, ApiError } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { Field, Spinner } from '../ui.jsx';
@@ -7,6 +8,7 @@ export default function ConnectForm({
   initialName = '',
   initialEndpoint = '',
   initialModel = '',
+  agents = [],
   onConnect,
   onCancel,
 }) {
@@ -18,6 +20,8 @@ export default function ConnectForm({
   const [formError, setFormError] = useState('');
   const [pending, setPending] = useState(false);
   const [ownKey, setOwnKey] = useState(false);
+  const [wantDefault, setWantDefault] = useState(false);
+  const form = defaultFormState(agents);
   const stash = useRef(null);
   const defaults = useFetch('default-credential', () => api('/v1/credentials/default'));
   const hasDefault = !!defaults.data?.available;
@@ -86,22 +90,34 @@ export default function ConnectForm({
             ? result.error
             : 'Connection failed. Check the details and retry.',
         );
+        setApiKey('');
         return;
       }
       stash.current = null;
-      onConnect({
-        name: agentName,
-        projectId: s.projectId,
-        versionId: s.versionId,
-        credentialId: s.credentialId,
-        endpoint: agentEndpoint,
-        model: agentModel,
-        ownProject: true,
-      });
+      setName(initialName);
+      setEndpoint(initialEndpoint);
+      setModel(initialModel);
+      setApiKey('');
+      setErrors({});
+      setFormError('');
+      setWantDefault(false);
+      onConnect(
+        {
+          name: agentName,
+          projectId: s.projectId,
+          versionId: s.versionId,
+          credentialId: s.credentialId,
+          endpoint: agentEndpoint,
+          model: agentModel,
+          ownProject: true,
+        },
+        { setAsDefault: !form.isFirst && wantDefault },
+      );
     } catch (error) {
       setFormError(
         error instanceof ApiError ? error.message : 'Connection failed. Check the details and retry.',
       );
+      setApiKey('');
     } finally {
       setPending(false);
     }
@@ -194,6 +210,24 @@ export default function ConnectForm({
           </Field>
         </>
       )}
+      {!form.isFirst ? (
+        <div className="field">
+          <label className={`connect-mode${wantDefault ? ' selected' : ''}`}>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={wantDefault}
+              onChange={(e) => setWantDefault(e.target.checked)}
+              disabled={pending}
+            />
+            Set as default agent
+          </label>
+          {wantDefault && form.defaultName ? (
+            <p className="muted">{replaceDefaultNote(form.defaultName)}</p>
+          ) : null}
+        </div>
+      ) : null}
+      {form.isFirst ? <p className="muted">{FIRST_DEFAULT_NOTE}</p> : null}
       <div className="connect-actions">
         <button type="submit" className="btn-primary" disabled={pending}>
           {pending ? <Spinner label="Connecting…" /> : 'Connect agent'}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getAgentForChat, isConnected } from '../agentStore.js';
 import { api, proposeFix, streamChat } from '../api.js';
 import Composer from './Composer.jsx';
 import TestCard from './TestCard.jsx';
@@ -98,6 +99,8 @@ function SuggestedTests({ heading, tests, onAdd, selected }) {
 
 export default function ChatView({
   chat,
+  agents = [],
+  nowMs = Date.now(),
   agentKeys = {},
   onPatch,
   onOpenAgentManager,
@@ -110,8 +113,14 @@ export default function ChatView({
   const aborter = useRef(null);
   const scrollRef = useRef(null);
   const stickToBottom = useRef(true);
-  const conn = chat.connection;
   const thinkingMessageId = chat.streaming ? chat.messages.at(-1)?.id : null;
+  const agent = getAgentForChat(agents, chat);
+  const agentConnected = isConnected(agent, nowMs);
+  const conn = agent ? {
+    ...chat.connection,
+    ...agent,
+    ownProject: chat.connection?.projectId === agent.projectId && chat.connection.ownProject,
+  } : chat.connection;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -149,7 +158,7 @@ export default function ChatView({
   }
 
   async function send(text, context, { kind = 'chat', runCard = null } = {}) {
-    if (!conn || chat.streaming || aborter.current) return;
+    if (!conn || !agentConnected || chat.streaming || aborter.current) return;
     setSelectedTest(null);
     const cardId = runCard?.id ?? null;
     const controller = new AbortController();
@@ -295,6 +304,7 @@ export default function ChatView({
         kind: 'test',
         status: 'done',
         result: {
+          projectId: conn.projectId,
           verdict: payload.verdict ?? (payload.passed ? 'pass' : 'fail'),
           rule: payload.rule ?? payload.failure_type ?? '',
           expected: payload.expected ?? '',
@@ -345,7 +355,7 @@ export default function ChatView({
   }
 
   const added = new Set(chat.messages.flatMap((m) => m.cards).map((card) => card.expected));
-  const suggestions = conn && !chat.streaming && !hasUserMessage(chat.messages) ? (
+  const suggestions = conn && agentConnected && !chat.streaming && !hasUserMessage(chat.messages) ? (
     <>
       <SuggestedTests
         heading="Suggested tests"
@@ -366,9 +376,44 @@ export default function ChatView({
     <div className="chat">
       <header className="page-head">
         <h1 className="truncate">{chat.title}</h1>
-        <span className="muted truncate">
-          {conn ? `Agent: ${conn.name || conn.model}` : 'Not connected'}
-        </span>
+        {agents.length ? (
+          <select
+            className="chat-agent-select"
+            aria-label="Chat agent"
+            value={agent?.id ?? ''}
+            disabled={chat.streaming}
+            onChange={(e) => {
+              const next = agents.find((a) => a.id === e.target.value);
+              if (!next) return;
+              setSelectedTest(null);
+              setChatError('');
+              onPatch(chat.id, (c) => ({
+                ...c,
+                agentId: next.id,
+                connectionDismissed: false,
+                connection: {
+                  name: next.name,
+                  projectId: next.projectId,
+                  versionId: next.versionId,
+                  credentialId: next.credentialId,
+                  endpoint: next.endpoint,
+                  model: next.model,
+                  memberProjectIds: next.memberProjectIds,
+                  ownProject: false,
+                },
+              }));
+            }}
+          >
+            {!agent ? <option value="">Select agent</option> : null}
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {(a.name || a.model || a.endpoint) + (isConnected(a, nowMs) ? '' : ' · Not connected')}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="muted truncate">Not connected</span>
+        )}
       </header>
       <div className="chat-body" ref={scrollRef} onScroll={() => {
         const el = scrollRef.current;
@@ -382,9 +427,20 @@ export default function ChatView({
               Open Agent Manager
             </button>
           </div>
+        ) : !agentConnected && chat.messages.length === 0 ? (
+          <div className="chat-narrow">
+            <p className="connected-note">Not connected</p>
+            <h2 className="hero">Agent key expired</h2>
+            <p className="muted">
+              Switch to a connected agent above, or connect a new one from the Agent Manager.
+            </p>
+            <button type="button" className="btn-secondary btn-accent" onClick={onOpenAgentManager}>
+              Open Agent Manager
+            </button>
+          </div>
         ) : chat.messages.length === 0 ? (
           <div className="chat-narrow">
-            <p className="connected-note">Agent connected</p>
+            <p className="connected-note">Connected</p>
             <h2 className="hero">What should we test?</h2>
             <p className="muted">Describe expected behavior or paste a response that went wrong.</p>
             {suggestions}
@@ -419,13 +475,13 @@ export default function ChatView({
                         onRun={runTest}
                         onViewEvidence={() =>
                           onOpenEvidence({
-                            projectId: conn.projectId,
+                            projectId: card.result?.projectId ?? conn?.projectId,
                             runId: card.result?.runId ?? null,
                             resultId: card.result?.resultId ?? null,
                           })
                         }
                         onFindFix={() => findFix(card)}
-                        disabled={chat.streaming}
+                        disabled={!agentConnected || chat.streaming}
                         onRemove={card.status === 'ready' ? () => onPatch(chat.id, (c) => ({ ...c, messages: removeDraft(c.messages, card.id) })) : undefined}
                       />
                     ) : (
@@ -473,11 +529,17 @@ export default function ChatView({
           card={selectedTest}
           onRun={runTest}
           onRemove={() => setSelectedTest(null)}
-          disabled={!conn || chat.streaming}
+          disabled={!conn || !agentConnected || chat.streaming}
         /> : null}
         <Composer
-          disabled={!conn || chat.streaming}
-          placeholder={conn ? 'Ask a follow-up…' : 'Connect an agent in Agent Manager to begin'}
+          disabled={!conn || !agentConnected || chat.streaming}
+          placeholder={
+            !conn
+              ? 'Connect an agent in Agent Manager to begin'
+              : !agentConnected
+                ? 'Agent not connected'
+                : 'Ask a follow-up…'
+          }
           onSend={(text, context) => send(text, context)}
         />
       </div>
