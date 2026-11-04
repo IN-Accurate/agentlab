@@ -13,6 +13,7 @@
   --failure: #b91c1c;
   --failure-soft: #fef2f2;
   --selected: #e8eeea;
+  --focus-tint: #e9e9ec;
   --success: #16a34a;
   --backdrop: rgba(0, 0, 0, 0.35);
   --shadow: 0 0 24px rgba(0, 0, 0, 0.15);
@@ -47,6 +48,7 @@
   --failure: #f87171;
   --failure-soft: #33191a;
   --selected: #26262c;
+  --focus-tint: rgba(255, 255, 255, 0.08);
   --success: #4ade80;
   --backdrop: rgba(0, 0, 0, 0.6);
   --shadow: 0 0 24px rgba(0, 0, 0, 0.6);
@@ -293,6 +295,11 @@ summary:focus-visible {
   color: var(--accent);
 }
 
+.sidebar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .sidebar nav ul {
   list-style: none;
   margin: 0;
@@ -514,6 +521,11 @@ summary:focus-visible {
   cursor: default;
 }
 
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .btn-secondary {
   background: var(--surface);
   color: var(--text);
@@ -612,6 +624,10 @@ summary:focus-visible {
   margin-left: -12px;
 }
 
+.chat-agent-select {
+  width: auto;
+}
+
 .dashboard .project-select {
   color: var(--accent);
 }
@@ -620,8 +636,10 @@ summary:focus-visible {
   border-color: var(--accent);
 }
 
+.dashboard .project-select:focus,
 .dashboard .project-select:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: none;
+  background: var(--focus-tint);
 }
 
 .dashboard .connect-actions .btn-secondary {
@@ -642,9 +660,9 @@ textarea {
 select.project-select {
   width: auto;
   font-weight: 600;
-  font-size: 17px;
+  font-size: 14px;
   border: none;
-  padding: 4px 0;
+  padding: 6px 0;
 }
 
 /* Shared states */
