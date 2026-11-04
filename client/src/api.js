@@ -51,7 +51,7 @@ export async function proposeTraceFix(traceId, credentialId) {
     return { ...diagnosis, repairId: repair.id };
   } catch (error) {
     // The diagnosis is saved either way, so the review still opens.
-    return { ...diagnosis, repairError: error?.message ?? 'Could not propose a repair.' };
+    return { ...diagnosis, repairError: error?.message ?? 'Could not propose a repair.', repairErrorCode: error?.code ?? null };
   }
 }
 

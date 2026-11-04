@@ -1,18 +1,48 @@
 import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { dedupeConnections, upsertAgent } from './agents.js';
+import {
+  DEFAULT_DONE_NOTE,
+  addAgent,
+  getDefaultAgent,
+  getAgentForChat,
+  getNewChatAgent,
+  isConnected,
+  invalidateCredential,
+  loadAgentStore,
+  removeAgent,
+  repointChats,
+  reconcileCredentialMetadata,
+  refreshAgentChats,
+  restoreChatConnection,
+  saveAgentStore,
+  setDefault,
+} from './agentStore.js';
 import { trimChatsForPersist } from './chatStorage.js';
-import { RECENT_LIMIT, chatCreatedAt, groupChats, visibleChats } from './chatGroups.js';
+import {
+  RECENT_LIMIT,
+  chatAgentId,
+  chatCreatedAt,
+  groupChats,
+  visibleChats,
+} from './chatGroups.js';
 import { loadUi, saveUi } from './uiState.js';
 import LogoMark from './LogoMark.jsx';
 import { Spinner, Toast, shortId } from './ui.jsx';
+import { api } from './api.js';
 
-const ChatView = lazy(() => import('./chat/ChatView.jsx'));
-const ConnectForm = lazy(() => import('./chat/ConnectForm.jsx'));
-const DashboardView = lazy(() => import('./dashboard/DashboardView.jsx'));
+const loadChatView = () => import('./chat/ChatView.jsx');
+const loadConnectForm = () => import('./chat/ConnectForm.jsx');
+const loadDashboardView = () => import('./dashboard/DashboardView.jsx');
+const ChatView = lazy(loadChatView);
+const ConnectForm = lazy(loadConnectForm);
+const DashboardView = lazy(loadDashboardView);
+
+function preloadView(loader) {
+  // Navigation still owns error handling if the optional warm-up fails.
+  void loader().catch(() => {});
+}
 
 const STORE_KEY = 'agentlab.chats.v1';
 const OLD_STORE_KEY = 'testlab.chats.v1';
-const AGENTS_KEY = 'agentlab.agents.v1';
 const THEME_KEY = 'agentlab.theme';
 const GROUP_KEY = 'agentlab.chatGroup';
 const THEME_OPTIONS = ['light', 'dark', 'system'];
@@ -56,6 +86,7 @@ function loadChats() {
     return JSON.parse(raw).map((c) => ({
       ...c,
       createdAt: chatCreatedAt(c),
+      agentId: chatAgentId(c),
       streaming: false,
       messages: (c.messages ?? []).map((m) => ({
         ...m,
@@ -64,23 +95,6 @@ function loadChats() {
         ),
       })),
     }));
-  } catch {
-    return [];
-  }
-}
-
-function loadAgents() {
-  try {
-    const raw = localStorage.getItem(AGENTS_KEY);
-    if (raw) return dedupeConnections(JSON.parse(raw));
-  } catch {
-    return [];
-  }
-  // Backfill once for profiles stored before agents had their own key.
-  try {
-    const chatsRaw = localStorage.getItem(STORE_KEY) ?? localStorage.getItem(OLD_STORE_KEY);
-    if (!chatsRaw) return [];
-    return dedupeConnections(JSON.parse(chatsRaw).map((c) => c.connection));
   } catch {
     return [];
   }
@@ -156,25 +170,43 @@ function newChat(connection) {
     createdAt: Date.now(),
     title: 'New chat',
     titleSet: false,
-    connection: connection ? { ...connection, ownProject: false } : null,
+    connection: connection
+      ? {
+          name: connection.name,
+          projectId: connection.projectId,
+          versionId: connection.versionId,
+          credentialId: connection.credentialId,
+          credentialSource: connection.credentialSource ?? null,
+          endpoint: connection.endpoint,
+          model: connection.model,
+          ...(connection.memberProjectIds ? { memberProjectIds: connection.memberProjectIds } : {}),
+          ownProject: false,
+        }
+      : null,
+    agentId: connection?.id ?? connection?.projectId ?? null,
     messages: [],
     streaming: false,
   };
 }
 
 export default function App() {
+  // Restore agents first so the first rendered draft has the same connection
+  // as Agent Manager, including when chat storage is empty or was evicted.
+  const [agents, setAgents] = useState(() => loadAgentStore(localStorage));
   const [chats, setChats] = useState(() => {
     const loaded = loadChats();
-    return loaded.length ? loaded : [newChat(null)];
+    return loaded.length
+      ? loaded.map((chat) => restoreChatConnection(chat, agents))
+      : [newChat(getNewChatAgent(agents))];
   });
-  // One entry per project, newest first; each keeps the key it connected with.
-  const [agents, setAgents] = useState(loadAgents);
   const [savedUi] = useState(loadUi);
+  const [connectNotice, setConnectNotice] = useState(null);
   const [activeId, setActiveId] = useState(savedUi.activeId);
   const [view, setView] = useState(savedUi.view);
   const [dash, setDash] = useState(savedUi.dash);
   const [menuOpen, setMenuOpen] = useState(false);
   const [changingAgent, setChangingAgent] = useState(false);
+  const [reconnectingAgentId, setReconnectingAgentId] = useState(null);
   const [chatsExpanded, setChatsExpanded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [groupMode, setGroupMode] = useState(() => {
@@ -208,16 +240,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(AGENTS_KEY, JSON.stringify(agents));
-    } catch {
-      // Private browsing: connections last for this tab only.
-    }
+    saveAgentStore(localStorage, agents);
   }, [agents]);
 
   useEffect(() => {
     saveUi({ view, activeId, dash });
   }, [view, activeId, dash]);
+
+  useEffect(() => {
+    if (view !== 'agents') setConnectNotice(null);
+  }, [view]);
 
   useEffect(() => {
     try {
@@ -243,10 +275,55 @@ export default function App() {
     return () => media.removeEventListener('change', apply);
   }, [theme]);
 
+  // Ticks so key expiry flips status labels without a refresh.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const credentialSignature = JSON.stringify([...new Set(agents.map((a) => a.credentialId).filter(Boolean))]);
+  useEffect(() => {
+    if (view !== 'agents') return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const inFlight = new Set();
+    const check = async (credentialId) => {
+      if (inFlight.has(credentialId)) return;
+      inFlight.add(credentialId);
+      try {
+        const metadata = await api(`/v1/credentials/${encodeURIComponent(credentialId)}`, { signal: controller.signal });
+        if (!cancelled) setAgents((current) => reconcileCredentialMetadata(current, credentialId, metadata));
+      } catch (error) {
+        if (!cancelled && error?.code === 'credential_expired') {
+          setAgents((current) => invalidateCredential(current, credentialId));
+        }
+      } finally {
+        inFlight.delete(credentialId);
+      }
+    };
+    const reconcile = () => {
+      setNowMs(Date.now());
+      for (const credentialId of JSON.parse(credentialSignature)) void check(credentialId);
+    };
+    reconcile();
+    window.addEventListener('focus', reconcile);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.removeEventListener('focus', reconcile);
+    };
+  }, [view, credentialSignature]);
+
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
-  const lastConnection = agents[0] ?? null;
-  const agentKeys = Object.fromEntries(agents.map((a) => [a.projectId, a.credentialId]));
+  const reconnectingAgent = agents.find((agent) => agent.id === reconnectingAgentId) ?? null;
+  const connectedAgents = agents.filter((a) => isConnected(a, nowMs));
+  const agentKeys = useMemo(
+    () => Object.fromEntries(agents.map((a) => [a.projectId, a.credentialId])),
+    [agents],
+  );
   const chatCredentialId =
+    agents.find((a) => a.projectId === dash.projectId)?.credentialId ??
     chats.find((c) => c.connection?.projectId === dash.projectId)?.connection
       ?.credentialId ?? null;
 
@@ -277,13 +354,6 @@ export default function App() {
     setDash((d) => ({ ...d, ...patch }));
   }, []);
 
-  function goHome(event) {
-    event.preventDefault();
-    setActiveId(null);
-    setView('dashboard');
-    setMenuOpen(false);
-  }
-
   const openChat = useCallback((id) => {
     setActiveId(id);
     setView('chat');
@@ -291,9 +361,8 @@ export default function App() {
     setPendingDelete(null);
   }, []);
 
-  function createChat(connection) {
-    const conn = connection?.projectId ? connection : lastConnection;
-    const chat = newChat(conn);
+  function createChat(connection = getNewChatAgent(agents)) {
+    const chat = newChat(connection);
     setChats((cs) => [chat, ...cs]);
     setActiveId(chat.id);
     setView('chat');
@@ -301,9 +370,9 @@ export default function App() {
     setPendingDelete(null);
   }
 
-  function patchChat(id, fn) {
+  const patchChat = useCallback((id, fn) => {
     setChats((cs) => cs.map((c) => (c.id === id ? fn(c) : c)));
-  }
+  }, []);
 
   const deleteChat = useCallback((id) => {
     // Removes the local conversation only; traces, tests and projects
@@ -315,26 +384,54 @@ export default function App() {
     } else {
       // Never strand the app with zero chats: with no active chat the
       // main area falls through to the dashboard.
-      const fresh = newChat(null);
+      const fresh = newChat(getNewChatAgent(agents));
       setChats([fresh]);
       setActiveId(fresh.id);
     }
-  }, []);
+  }, [agents]);
 
   function openAgentManager() {
     setChangingAgent(false);
+    setReconnectingAgentId(null);
     setView('agents');
     setMenuOpen(false);
   }
 
-  function connectAgent(connection) {
-    setAgents((as) => upsertAgent(as, connection));
-    const chat = activeChat && !activeChat.connection ? activeChat : newChat(null);
+  function reconnectAgent(agentId) {
+    if (!agents.some((agent) => agent.id === agentId)) return;
+    setReconnectingAgentId(agentId);
+    setChangingAgent(true);
+    setConnectNotice(null);
+    setView('agents');
+    setMenuOpen(false);
+  }
+
+  const credentialInvalid = useCallback((credentialId) => {
+    setAgents((current) => invalidateCredential(current, credentialId));
+  }, []);
+
+  function connectAgent(connection, opts = {}) {
+    if (reconnectingAgentId && connection.projectId !== reconnectingAgentId) return;
+    const wasFirst = agents.length === 0;
+    const added = addAgent(agents, connection);
+    const nextAgents = !reconnectingAgentId && opts.setAsDefault ? setDefault(added, connection.projectId) : added;
+    const savedAgent = nextAgents.find((a) => a.id === connection.projectId);
+    if (!savedAgent) return;
+    setAgents(nextAgents);
+    if (reconnectingAgentId) {
+      setChats((cs) => refreshAgentChats(cs, savedAgent));
+      setConnectNotice('Reconnected.');
+      setChangingAgent(false);
+      setReconnectingAgentId(null);
+      return;
+    }
+    setConnectNotice(wasFirst ? `Connected. ${DEFAULT_DONE_NOTE}` : 'Connected.');
+    const chat = activeChat && !activeChat.connection && !activeChat.messages.length && !activeChat.titleSet
+      ? activeChat
+      : newChat(null);
     setChats((cs) => [
-      { ...chat, connection },
-      ...cs.filter((c) => c.id !== chat.id).map((c) =>
-        c.connection ? c : { ...c, connection: { ...connection, ownProject: false } },
-      ),
+      { ...chat, connection: { ...connection, ...savedAgent }, agentId: savedAgent.id, connectionDismissed: false },
+      ...cs.filter((c) => c.id !== chat.id).map((c) => restoreChatConnection(c, nextAgents)),
     ]);
     setActiveId(chat.id);
     setChangingAgent(false);
@@ -342,15 +439,37 @@ export default function App() {
     setMenuOpen(false);
   }
 
-  function disconnectAgent(projectId) {
-    setAgents((as) => as.filter((a) => a.projectId !== projectId));
-    setChats((cs) =>
-      cs.map((c) => (c.connection?.projectId === projectId ? { ...c, connection: null } : c)),
-    );
+  function setDefaultAgent(agentId) {
+    setConnectNotice(null);
+    setAgents((as) => setDefault(as, agentId));
   }
 
-  function openEvidence({ runId, resultId }) {
-    patchDash({ tab: 'runs', runId: runId ?? null, resultId: resultId ?? null });
+  function deleteAgent(agentId) {
+    const { agents: next, removed } = removeAgent(agents, agentId);
+    if (!removed) return;
+    setConnectNotice(null);
+    setAgents(next);
+    setChats((cs) => repointChats(cs, agentId, getDefaultAgent(next)));
+  }
+
+  function openEvidence({ projectId, runId, resultId }) {
+    patchDash({
+      tab: 'runs',
+      projectId: projectId ?? getAgentForChat(agents, activeChat)?.projectId ?? activeChat?.connection?.projectId ?? dash.projectId,
+      runId: runId ?? null,
+      resultId: resultId ?? null,
+      runVersion: 'all',
+      resultFilter: 'all',
+      splitFilter: 'all',
+      traceVersion: 'all',
+      traceStatus: 'all',
+      traceId: null,
+      spanId: null,
+      traceVerdict: null,
+      review: null,
+      compareA: null,
+      compareB: null,
+    });
     setView('dashboard');
   }
 
@@ -380,13 +499,21 @@ export default function App() {
         ☰
       </button>
       <aside className={`sidebar${menuOpen ? ' open' : ''}`}>
-        <a className="brand-link" href="#/" onClick={goHome}>
+        <div className="brand-link">
           <LogoMark />
           <span>AgentLab</span>
-        </a>
-        <button type="button" className="new-chat" onClick={() => createChat()}>
-          <span aria-hidden="true">＋</span> New chat
-        </button>
+        </div>
+        {connectedAgents.length ? (
+          <button
+            type="button"
+            className="new-chat"
+            onClick={() => createChat()}
+            onPointerEnter={() => preloadView(loadChatView)}
+            onFocus={() => preloadView(loadChatView)}
+          >
+            <span aria-hidden="true">＋</span> New chat
+          </button>
+        ) : null}
         <nav aria-label="Recent chats">
           <div className="sidebar-heading-row">
             <p className="sidebar-heading">Recent chats</p>
@@ -445,6 +572,8 @@ export default function App() {
         <button
           type="button"
           className={view === 'dashboard' ? 'selected' : ''}
+          onPointerEnter={() => preloadView(loadDashboardView)}
+          onFocus={() => preloadView(loadDashboardView)}
           onClick={() => {
             setView('dashboard');
             setMenuOpen(false);
@@ -456,16 +585,18 @@ export default function App() {
           <button
             type="button"
             className={`agent-manager-button${view === 'agents' ? ' selected' : ''}`}
+            onPointerEnter={() => preloadView(loadConnectForm)}
+            onFocus={() => preloadView(loadConnectForm)}
             onClick={openAgentManager}
           >
-            <span className={`connection-dot${lastConnection ? ' connected' : ''}`} aria-hidden="true" />
+            <span className={`connection-dot${connectedAgents.length ? ' connected' : ''}`} aria-hidden="true" />
             <span className="agent-manager-text">
               Agent Manager
-              <span className="connection-label truncate" title={lastConnection?.model}>
-                {agents.length > 1
-                  ? `${agents.length} agents connected`
-                  : lastConnection
-                    ? `Connected · ${lastConnection.model}`
+              <span className="connection-label truncate" title={connectedAgents[0]?.model}>
+                {connectedAgents.length > 1
+                  ? `Connected · ${connectedAgents.length} agents`
+                  : connectedAgents.length
+                    ? `Connected · ${connectedAgents[0].model}`
                     : 'Not connected'}
               </span>
             </span>
@@ -497,54 +628,107 @@ export default function App() {
           <div>
             <header className="page-head">
               <h1>Agent Manager</h1>
-              <span className={agents.length ? 'good-text' : 'bad-text'} role="status">
-                {agents.length === 1
-                  ? 'Agent connected'
-                  : agents.length
-                    ? `${agents.length} agents connected`
-                    : 'Not connected'}
+              <span className={connectedAgents.length ? 'good-text' : 'bad-text'} role="status">
+                {connectedAgents.length ? 'Connected' : 'Not connected'}
               </span>
             </header>
             <div className="chat-narrow agents-narrow">
+              {connectNotice ? (
+                <p className="good-text" role="status">
+                  {connectNotice}
+                </p>
+              ) : null}
               {agents.length && !changingAgent ? (
                 <>
                   <ul className="agent-list">
                     {agents.map((agent) => (
                       <li key={agent.projectId}>
                         <section className="card connected-agent" aria-label={agent.name || agent.model}>
-                          <h2>{agent.name || 'Connected agent'}</h2>
+                          <h2>{agent.name || 'Saved agent'}</h2>
                           <dl className="agent-details">
+                            <dt>Status</dt>
+                            <dd className={isConnected(agent, nowMs) ? 'good-text' : 'bad-text'}>
+                              {isConnected(agent, nowMs) ? 'Connected' : 'Not connected'}
+                              {agent.isDefault ? ' · Default' : ''}
+                            </dd>
                             <dt>Model</dt>
                             <dd>{agent.model}</dd>
                             <dt>Endpoint</dt>
                             <dd>{agent.endpoint}</dd>
                           </dl>
                           <div className="connect-actions">
-                            <button type="button" className="btn-secondary" onClick={() => createChat(agent)}>
-                              New chat with this agent
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => reconnectAgent(agent.id)}
+                            >
+                              Reconnect
                             </button>
                             <button
                               type="button"
                               className="btn-secondary"
-                              onClick={() => disconnectAgent(agent.projectId)}
+                              onClick={() => createChat(agent)}
+                              disabled={!isConnected(agent, nowMs)}
+                              title={isConnected(agent, nowMs) ? undefined : 'Reconnect this agent first'}
                             >
-                              Disconnect
+                              New chat with this agent
                             </button>
+                            {!agent.isDefault && isConnected(agent, nowMs) ? (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => setDefaultAgent(agent.id)}
+                              >
+                                Set as default
+                              </button>
+                            ) : null}
+                            {agent.isDefault ? (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                disabled
+                                title="The default agent can't be deleted"
+                              >
+                                Delete
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => deleteAgent(agent.id)}
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </section>
                       </li>
                     ))}
                   </ul>
-                  <button type="button" className="btn-secondary" onClick={() => setChangingAgent(true)}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setConnectNotice(null);
+                      setReconnectingAgentId(null);
+                      setChangingAgent(true);
+                    }}
+                  >
                     Connect another agent
                   </button>
                 </>
               ) : (
                 <>
-                  <p className="muted">Connect an agent here to use it in new chats.</p>
+                  <p className="muted">{reconnectingAgent ? 'Reconnect this agent to continue using its existing chats.' : 'Connect an agent here to use it in new chats.'}</p>
                   <ConnectForm
+                    key={reconnectingAgentId ?? 'new-agent'}
+                    agents={agents}
+                    reconnectAgent={reconnectingAgent}
                     onConnect={connectAgent}
-                    onCancel={agents.length ? () => setChangingAgent(false) : undefined}
+                    onCancel={agents.length ? () => {
+                      setChangingAgent(false);
+                      setReconnectingAgentId(null);
+                    } : undefined}
                   />
                 </>
               )}
@@ -552,10 +736,15 @@ export default function App() {
           </div>
         ) : view === 'chat' && activeChat ? (
           <ChatView
+            key={activeChat.id}
             chat={activeChat}
+            agents={agents}
+            nowMs={nowMs}
             agentKeys={agentKeys}
             onPatch={patchChat}
             onOpenAgentManager={openAgentManager}
+            onReconnectAgent={reconnectAgent}
+            onCredentialInvalid={credentialInvalid}
             onOpenEvidence={openEvidence}
             onOpenReview={openReview}
           />
@@ -567,6 +756,7 @@ export default function App() {
             onContinueInChat={continueInChat}
             showToast={showToast}
             onTestInNewChat={testInNewChat}
+            onOpenAgentManager={openAgentManager}
           />
         )}
         </Suspense>
