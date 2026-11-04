@@ -74,7 +74,9 @@ describe('saved agent and chat state', () => {
 
     const message = await screen.findByRole('textbox', { name: 'Message' }, { timeout: 5000 });
     expect(message.disabled).toBe(false);
-    expect(screen.getByRole('combobox', { name: 'Chat agent' }).value).toBe(agent.id);
+    // One saved agent: the header names it as plain text, with no dropdown.
+    expect(screen.getByLabelText('Chat agent').textContent).toBe(agent.model);
+    expect(screen.queryByRole('combobox', { name: 'Chat agent' })).toBeNull();
     expect(screen.getByRole('heading', { name: 'What should we test?' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Connect an agent to get started' })).toBeNull();
     expect(api).not.toHaveBeenCalled();
@@ -133,7 +135,7 @@ describe('saved agent and chat state', () => {
     expect(screen.getByRole('heading', { name: 'New chat' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'What should we test?' })).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Message' }).disabled).toBe(false);
-    expect(screen.getByRole('combobox', { name: 'Chat agent' }).value).toBe(agent.id);
+    expect(screen.getByLabelText('Chat agent').textContent).toBe(agent.model);
     expect(screen.queryByText('Previous message')).toBeNull();
     expect(api).not.toHaveBeenCalled();
     expect(streamChat).not.toHaveBeenCalled();

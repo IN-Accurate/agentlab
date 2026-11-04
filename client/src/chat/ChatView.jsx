@@ -428,7 +428,12 @@ export default function ChatView({
     <div className="chat">
       <header className="page-head">
         <h1 className="truncate">{chat.title}</h1>
-        {agents.length ? (
+        {agents.length === 1 && agent ? (
+          // One agent: nothing to choose, so just name it.
+          <span className="chat-agent-name truncate font-medium" aria-label="Chat agent">
+            {(agent.name || agent.model || agent.endpoint) + (isConnected(agent, nowMs) ? '' : ' · Not connected')}
+          </span>
+        ) : agents.length ? (
           <select
             className="chat-agent-select"
             aria-label="Chat agent"
