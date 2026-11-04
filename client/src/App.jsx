@@ -254,13 +254,6 @@ export default function App() {
     setDash((d) => ({ ...d, ...patch }));
   }, []);
 
-  function goHome(event) {
-    event.preventDefault();
-    setActiveId(null);
-    setView('dashboard');
-    setMenuOpen(false);
-  }
-
   const openChat = useCallback((id) => {
     setActiveId(id);
     setView('chat');
@@ -357,10 +350,10 @@ export default function App() {
         ☰
       </button>
       <aside className={`sidebar${menuOpen ? ' open' : ''}`}>
-        <a className="brand-link" href="#/" onClick={goHome}>
+        <div className="brand-link">
           <LogoMark />
           <span>AgentLab</span>
-        </a>
+        </div>
         <button type="button" className="new-chat" onClick={() => createChat()}>
           <span aria-hidden="true">＋</span> New chat
         </button>

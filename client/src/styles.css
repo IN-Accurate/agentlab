@@ -9,7 +9,7 @@
   --primary-text: #ffffff;
   --positive: #0f766e;
   --positive-soft: #f0fdfa;
-  --accent: #b23a10;
+  --accent: #0e7490;
   --failure: #b91c1c;
   --failure-soft: #fef2f2;
   --selected: #e8eeea;
@@ -29,6 +29,7 @@
 
 [data-theme='light'] {
   color-scheme: light;
+  --positive: #239845;
 }
 
 [data-theme='dark'] {
@@ -40,9 +41,9 @@
   --muted: #a1a1aa;
   --primary: #e4e4e7;
   --primary-text: #18181b;
-  --positive: #2dd4bf;
+  --positive: #239845;
   --positive-soft: #0c2b27;
-  --accent: #fad10f;
+  --accent: #0ae6ff;
   --failure: #f87171;
   --failure-soft: #33191a;
   --selected: #26262c;
@@ -71,21 +72,21 @@
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-/* Dark-mode card glow: gold edge + halo on card surfaces. Light mode untouched. */
+/* Dark-mode card glow: gray edge + halo on card surfaces. Light mode untouched. */
 [data-theme='dark'] .card,
 [data-theme='dark'] .card-panel,
 [data-theme='dark'] .modal,
 [data-theme='dark'] .composer,
 [data-theme='dark'] .rail,
 [data-theme='dark'] .rail li button.selected {
-  border-color: rgba(250, 209, 15, 0.3);
-  box-shadow: 0 0 18px rgba(250, 209, 15, 0.12);
+  border-color: rgba(128, 128, 128, 0.3);
+  box-shadow: 0 0 18px rgba(128, 128, 128, 0.12);
 }
 
 [data-theme='dark'] .diff-before,
 [data-theme='dark'] .diff-after {
-  border: 1px solid rgba(250, 209, 15, 0.25);
-  box-shadow: 0 0 18px rgba(250, 209, 15, 0.1);
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  box-shadow: 0 0 18px rgba(128, 128, 128, 0.1);
 }
 
 .card-panel {
@@ -93,7 +94,7 @@
 }
 
 [data-theme='dark'] .card-panel {
-  border: 1px solid rgba(250, 209, 15, 0.3);
+  border: 1px solid rgba(128, 128, 128, 0.3);
   border-radius: var(--radius-card);
   padding: 4px 20px 16px;
 }
