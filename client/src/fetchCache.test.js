@@ -64,4 +64,23 @@ describe('fetchCache', () => {
     assert.equal(await cache.fetchShared('k', fetcher, { bypass: true }), 2);
     assert.equal(cache.getCached('k'), 2);
   });
+
+  it('shares synchronous fetchers and turns synchronous failures into retryable rejections', async () => {
+    const cache = createFetchCache(60_000);
+    let calls = 0;
+    const fetcher = () => ++calls;
+    const [a, b] = await Promise.all([
+      cache.fetchShared('sync', fetcher),
+      cache.fetchShared('sync', fetcher),
+    ]);
+    assert.equal(a, 1);
+    assert.equal(b, 1);
+    assert.equal(calls, 1);
+
+    await assert.rejects(cache.fetchShared('error', () => {
+      throw new Error('sync failure');
+    }), /sync failure/);
+    assert.equal(cache.getCached('error'), undefined);
+    assert.equal(await cache.fetchShared('error', () => 'recovered'), 'recovered');
+  });
 });

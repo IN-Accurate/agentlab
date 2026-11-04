@@ -145,7 +145,7 @@ Each test builds a fresh schema from `db/agentlab_schema.sql` inside that databa
 
 ## Built With
 
-* **Core & Infrastructure:** FastAPI, PostgreSQL, React
-* **Ecosystem & Stack:** Muse Spark
-* **Observability & RAG:** 
-* **Testing & Guardrails:** 
+* **Core & Infrastructure:** FastAPI, Uvicorn, Pydantic, PostgreSQL, SQLAlchemy (asyncpg), Alembic, React, Vite, shadcn/ui avatar composition (Radix UI), Lucide icons, react-markdown/remark-gfm, and Fernet-encrypted BYOK credentials.
+* **Ecosystem & Stack:** Meta's Muse Spark via the Meta Model API; Llama via OpenAI-compatible endpoints; optional OpenRouter model access. Model endpoints and IDs are configurable.
+* **Observability & RAG:** AgentLab's own persisted traces and spans for model calls, tools, retrieval, and validation; keyword-ranked knowledge-base retrieval with metadata filters; Wikipedia search via the MediaWiki API; Server-Sent Events for chat and job progress.
+* **Testing & Guardrails:** pytest, pytest-asyncio, Node.js's built-in test runner, Vitest, React Testing Library, JSON Schema validation (jsonschema), deterministic assertions, LLM judges, rule-based diagnosis, and baseline/candidate regression verification. PurpleLlama (Llama Guard, Prompt Guard) and Llama Stack are design references, not integrated runtime dependencies.

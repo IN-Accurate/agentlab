@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchCache } from './fetchCache.js';
 
 function initialState(key) {
@@ -10,49 +10,55 @@ function initialState(key) {
 
 export function useFetch(key, fetcher) {
   const [state, setState] = useState(() => initialState(key));
-  const reload = useCallback(() => {
+  const fetcherRef = useRef({ key, fetcher });
+  fetcherRef.current = { key, fetcher };
+  const request = useRef(0);
+  const mounted = useRef(false);
+  const load = useCallback((bypass) => {
+    // A long-running action may retain the reload callback for an old project.
+    if (!mounted.current || fetcherRef.current.key !== key) return;
+    const id = ++request.current;
     if (!key) {
       setState({ key, data: null, error: null, loading: false });
       return;
     }
-    let cancelled = false;
     setState((s) =>
       s.key === key
         ? { ...s, loading: true, error: null }
         : { key, data: null, error: null, loading: true },
     );
-    fetchCache.fetchShared(key, fetcher, { bypass: true }).then(
+    fetchCache.fetchShared(key, fetcherRef.current.fetcher, { bypass }).then(
       (data) => {
-        if (!cancelled)
+        if (id === request.current)
           setState((s) => (s.key === key ? { key, data, error: null, loading: false } : s));
       },
       (error) => {
-        if (!cancelled)
+        if (id === request.current)
           setState((s) => (s.key === key ? { ...s, key, error, loading: false } : s));
       },
     );
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+  const reload = useCallback(() => load(true), [load]);
   useEffect(() => {
-    if (!key) {
-      setState({ key, data: null, error: null, loading: false });
-      return;
+    mounted.current = true;
+    const cached = initialState(key);
+    if (cached.loading) load(false);
+    else {
+      request.current += 1;
+      setState(cached);
     }
-    const hit = fetchCache.getCached(key);
-    if (hit !== undefined) {
-      setState({ key, data: hit, error: null, loading: false });
-      return;
-    }
-    reload();
-  }, [key, reload]);
-  const current = state.key === key;
+    return () => {
+      // Ignore completions from a previous key, unmount, or older reload.
+      mounted.current = false;
+      request.current += 1;
+    };
+  }, [key, load]);
+  // Cached tab switches can render immediately, before the effect runs.
+  const current = state.key === key ? state : initialState(key);
   return {
-    data: current ? state.data : null,
-    error: current ? state.error : null,
-    loading: key ? state.loading || !current : false,
+    data: current.data,
+    error: current.error,
+    loading: current.loading,
     reload,
   };
 }

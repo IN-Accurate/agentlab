@@ -186,9 +186,7 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
           </p>
         ) : null}
         {pending ? (
-          <p className="muted" role="status">
-            {progress === 1 ? 'Finishing…' : 'Evaluation running… this can take a while.'}
-          </p>
+          <Spinner label={progress === 1 ? 'Finishing…' : 'Running evaluation…'} />
         ) : null}
         <div className="modal-actions">
           <button type="button" className="btn-secondary" onClick={onClose} disabled={pending}>
@@ -292,7 +290,8 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
           </button>
         ))}
       </nav>
-      {board.loading ? (
+      {board.loading && board.data ? <Spinner label="Refreshing dashboard…" /> : null}
+      {board.loading && !board.data ? (
         <Spinner />
       ) : board.error ? (
         <ErrorBox error={board.error} onRetry={board.reload} />

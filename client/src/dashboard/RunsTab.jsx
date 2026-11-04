@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, proposeFix } from '../api.js';
 import { useFetch } from '../hooks.js';
+import { fetchCache } from '../fetchCache.js';
 import { Empty, ErrorBox, Spinner, Verdict, fmtTime, shortId } from '../ui.jsx';
 
 async function fetchRail(projectId, versionIds, versionFilter, cursor) {
@@ -14,51 +15,68 @@ async function fetchRail(projectId, versionIds, versionFilter, cursor) {
   return { items, next: page.next_cursor ?? null };
 }
 
-function useRail(projectId, versions, versionFilter, nonce) {
-  const [items, setItems] = useState([]);
-  const [cursor, setCursor] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+function railState(key) {
+  const cached = fetchCache.getCached(key);
+  return {
+    key,
+    items: cached?.items ?? [],
+    cursor: cached?.next ?? null,
+    loading: cached === undefined,
+    error: null,
+  };
+}
+
+export function useRail(projectId, versions, versionFilter, nonce) {
   const versionIds = useMemo(() => new Set(versions.map((v) => v.version_id)), [versions]);
+  const key = `run-rail-${projectId}-${versionFilter}-${[...versionIds].join(',')}-${nonce}`;
+  const [state, setState] = useState(() => railState(key));
+  const generation = useRef(0);
+  const currentKey = useRef(key);
+  const paging = useRef(false);
+  currentKey.current = key;
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetchRail(projectId, versionIds, versionFilter, null).then(
+    const id = ++generation.current;
+    paging.current = false;
+    setState(railState(key));
+    fetchCache.fetchShared(key, () => fetchRail(projectId, versionIds, versionFilter, null)).then(
       ({ items, next }) => {
-        if (cancelled) return;
-        setItems(items);
-        setCursor(next);
-        setLoading(false);
+        if (id !== generation.current || currentKey.current !== key) return;
+        setState({ key, items, cursor: next, loading: false, error: null });
       },
-      (e) => {
-        if (!cancelled) {
-          setError(e);
-          setLoading(false);
-        }
+      (error) => {
+        if (id !== generation.current || currentKey.current !== key) return;
+        setState((s) => s.key === key ? { ...s, error, loading: false } : s);
       },
     );
     return () => {
-      cancelled = true;
+      generation.current += 1;
     };
-  }, [projectId, versionFilter, nonce, versionIds]);
+  }, [key, projectId, versionFilter, versionIds]);
+
+  const current = state.key === key ? state : railState(key);
 
   async function more() {
-    if (!cursor) return;
-    setLoading(true);
+    if (currentKey.current !== key || !current.cursor || current.loading || paging.current) return;
+    const id = generation.current;
+    paging.current = true;
+    setState((s) => s.key === key ? { ...s, loading: true, error: null } : s);
     try {
-      const { items: next2, next } = await fetchRail(projectId, versionIds, versionFilter, cursor);
-      setItems((all) => [...all, ...next2]);
-      setCursor(next);
-    } catch (e) {
-      setError(e);
+      const { items, next } = await fetchRail(projectId, versionIds, versionFilter, current.cursor);
+      if (id !== generation.current || currentKey.current !== key) return;
+      setState((s) => s.key === key ? { ...s, items: [...s.items, ...items], cursor: next } : s);
+    } catch (error) {
+      if (id === generation.current && currentKey.current === key)
+        setState((s) => s.key === key ? { ...s, error } : s);
     } finally {
-      setLoading(false);
+      if (id === generation.current && currentKey.current === key) {
+        paging.current = false;
+        setState((s) => s.key === key ? { ...s, loading: false } : s);
+      }
     }
   }
 
-  return { items, cursor, loading, error, more };
+  return { ...current, more };
 }
 
 export default function RunsTab({
@@ -90,7 +108,10 @@ export default function RunsTab({
   useEffect(() => {
     let cancelled = false;
     Promise.allSettled(
-      rail.items.map((r) => api(`/v1/runs/${r.id}/summary`).then((s) => [r.id, s])),
+      rail.items.map((r) => fetchCache.fetchShared(
+        `run-summary-${r.id}-${dash.runsNonce ?? 0}`,
+        () => api(`/v1/runs/${r.id}/summary`),
+      ).then((s) => [r.id, s])),
     ).then((done) => {
       if (cancelled) return;
       const next = {};
@@ -100,7 +121,7 @@ export default function RunsTab({
     return () => {
       cancelled = true;
     };
-  }, [rail.items]);
+  }, [rail.items, dash.runsNonce]);
 
   const runId = dash.runId ?? rail.items[0]?.id ?? null;
   const summary = useFetch(

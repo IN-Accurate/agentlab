@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { api } from '../api.js';
-import { Field, Modal } from '../ui.jsx';
+import { Field, Modal, Spinner } from '../ui.jsx';
 
 const INPUT_NAMES = ['question', 'input', 'prompt', 'query', 'instruction', 'text'];
 const REPLY_NAMES = ['answer', 'output', 'response', 'completion', 'reply', 'target', 'label'];
@@ -204,6 +204,7 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
             {error}
           </p>
         ) : null}
+        {pending ? <Spinner label={preview ? 'Working…' : 'Loading dataset…'} /> : null}
         {done ? (
           <p className="good-text" role="status">
             Imported {done.imported} tests, skipped {done.skipped} empty or duplicate rows. Use Run

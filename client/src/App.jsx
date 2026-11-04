@@ -1,14 +1,22 @@
 import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { dedupeConnections, upsertAgent } from './agents.js';
+import { dedupeConnections, restoreChatConnection, upsertAgent } from './agents.js';
 import { trimChatsForPersist } from './chatStorage.js';
 import { RECENT_LIMIT, chatCreatedAt, groupChats, visibleChats } from './chatGroups.js';
 import { loadUi, saveUi } from './uiState.js';
 import LogoMark from './LogoMark.jsx';
 import { Spinner } from './ui.jsx';
 
-const ChatView = lazy(() => import('./chat/ChatView.jsx'));
-const ConnectForm = lazy(() => import('./chat/ConnectForm.jsx'));
-const DashboardView = lazy(() => import('./dashboard/DashboardView.jsx'));
+const loadChatView = () => import('./chat/ChatView.jsx');
+const loadConnectForm = () => import('./chat/ConnectForm.jsx');
+const loadDashboardView = () => import('./dashboard/DashboardView.jsx');
+const ChatView = lazy(loadChatView);
+const ConnectForm = lazy(loadConnectForm);
+const DashboardView = lazy(loadDashboardView);
+
+function preloadView(loader) {
+  // Navigation still owns error handling if the optional warm-up fails.
+  void loader().catch(() => {});
+}
 
 const STORE_KEY = 'agentlab.chats.v1';
 const OLD_STORE_KEY = 'testlab.chats.v1';
@@ -163,12 +171,15 @@ function newChat(connection) {
 }
 
 export default function App() {
+  // Restore agents first so the first rendered draft has the same connection
+  // as Agent Manager, including when chat storage is empty or was evicted.
+  const [agents, setAgents] = useState(loadAgents);
   const [chats, setChats] = useState(() => {
     const loaded = loadChats();
-    return loaded.length ? loaded : [newChat(null)];
+    return loaded.length
+      ? loaded.map((chat) => restoreChatConnection(chat, agents))
+      : [newChat(agents[0])];
   });
-  // One entry per project, newest first; each keeps the key it connected with.
-  const [agents, setAgents] = useState(loadAgents);
   const [savedUi] = useState(loadUi);
   const [activeId, setActiveId] = useState(savedUi.activeId);
   const [view, setView] = useState(savedUi.view);
@@ -245,7 +256,10 @@ export default function App() {
 
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
   const lastConnection = agents[0] ?? null;
-  const agentKeys = Object.fromEntries(agents.map((a) => [a.projectId, a.credentialId]));
+  const agentKeys = useMemo(
+    () => Object.fromEntries(agents.map((a) => [a.projectId, a.credentialId])),
+    [agents],
+  );
   const chatCredentialId =
     chats.find((c) => c.connection?.projectId === dash.projectId)?.connection
       ?.credentialId ?? null;
@@ -271,9 +285,9 @@ export default function App() {
     setPendingDelete(null);
   }
 
-  function patchChat(id, fn) {
+  const patchChat = useCallback((id, fn) => {
     setChats((cs) => cs.map((c) => (c.id === id ? fn(c) : c)));
-  }
+  }, []);
 
   const deleteChat = useCallback((id) => {
     // Removes the local conversation only; traces, tests and projects
@@ -285,11 +299,11 @@ export default function App() {
     } else {
       // Never strand the app with zero chats: with no active chat the
       // main area falls through to the dashboard.
-      const fresh = newChat(null);
+      const fresh = newChat(agents[0]);
       setChats([fresh]);
       setActiveId(fresh.id);
     }
-  }, []);
+  }, [agents]);
 
   function openAgentManager() {
     setChangingAgent(false);
@@ -299,12 +313,12 @@ export default function App() {
 
   function connectAgent(connection) {
     setAgents((as) => upsertAgent(as, connection));
-    const chat = activeChat && !activeChat.connection ? activeChat : newChat(null);
+    const chat = activeChat && !activeChat.connection && !activeChat.messages.length && !activeChat.titleSet
+      ? activeChat
+      : newChat(null);
     setChats((cs) => [
-      { ...chat, connection },
-      ...cs.filter((c) => c.id !== chat.id).map((c) =>
-        c.connection ? c : { ...c, connection: { ...connection, ownProject: false } },
-      ),
+      { ...chat, connection, connectionDismissed: false },
+      ...cs.filter((c) => c.id !== chat.id).map((c) => restoreChatConnection(c, [connection])),
     ]);
     setActiveId(chat.id);
     setChangingAgent(false);
@@ -315,12 +329,30 @@ export default function App() {
   function disconnectAgent(projectId) {
     setAgents((as) => as.filter((a) => a.projectId !== projectId));
     setChats((cs) =>
-      cs.map((c) => (c.connection?.projectId === projectId ? { ...c, connection: null } : c)),
+      cs.map((c) => (c.connection?.projectId === projectId
+        ? { ...c, connection: null, connectionDismissed: true }
+        : c)),
     );
   }
 
-  function openEvidence({ runId, resultId }) {
-    patchDash({ tab: 'runs', runId: runId ?? null, resultId: resultId ?? null });
+  function openEvidence({ projectId, runId, resultId }) {
+    patchDash({
+      tab: 'runs',
+      projectId: projectId ?? activeChat?.connection?.projectId ?? dash.projectId,
+      runId: runId ?? null,
+      resultId: resultId ?? null,
+      runVersion: 'all',
+      resultFilter: 'all',
+      splitFilter: 'all',
+      traceVersion: 'all',
+      traceStatus: 'all',
+      traceId: null,
+      spanId: null,
+      traceVerdict: null,
+      review: null,
+      compareA: null,
+      compareB: null,
+    });
     setView('dashboard');
   }
 
@@ -354,7 +386,13 @@ export default function App() {
           <LogoMark />
           <span>AgentLab</span>
         </div>
-        <button type="button" className="new-chat" onClick={() => createChat()}>
+        <button
+          type="button"
+          className="new-chat"
+          onClick={() => createChat()}
+          onPointerEnter={() => preloadView(loadChatView)}
+          onFocus={() => preloadView(loadChatView)}
+        >
           <span aria-hidden="true">＋</span> New chat
         </button>
         <nav aria-label="Recent chats">
@@ -415,6 +453,8 @@ export default function App() {
         <button
           type="button"
           className={view === 'dashboard' ? 'selected' : ''}
+          onPointerEnter={() => preloadView(loadDashboardView)}
+          onFocus={() => preloadView(loadDashboardView)}
           onClick={() => {
             setView('dashboard');
             setMenuOpen(false);
@@ -426,6 +466,8 @@ export default function App() {
           <button
             type="button"
             className={`agent-manager-button${view === 'agents' ? ' selected' : ''}`}
+            onPointerEnter={() => preloadView(loadConnectForm)}
+            onFocus={() => preloadView(loadConnectForm)}
             onClick={openAgentManager}
           >
             <span className={`connection-dot${lastConnection ? ' connected' : ''}`} aria-hidden="true" />
@@ -522,6 +564,7 @@ export default function App() {
           </div>
         ) : view === 'chat' && activeChat ? (
           <ChatView
+            key={activeChat.id}
             chat={activeChat}
             agentKeys={agentKeys}
             onPatch={patchChat}

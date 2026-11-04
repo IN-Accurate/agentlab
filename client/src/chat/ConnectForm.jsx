@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { api, ApiError } from '../api.js';
 import { useFetch } from '../hooks.js';
-import { Field } from '../ui.jsx';
+import { Field, Spinner } from '../ui.jsx';
 
 export default function ConnectForm({
   initialName = '',
@@ -196,7 +196,7 @@ export default function ConnectForm({
       )}
       <div className="connect-actions">
         <button type="submit" className="btn-primary" disabled={pending}>
-          {pending ? 'Connecting…' : 'Connect agent'}
+          {pending ? <Spinner label="Connecting…" /> : 'Connect agent'}
         </button>
         {onCancel ? (
           <button type="button" className="btn-secondary" onClick={onCancel} disabled={pending}>
