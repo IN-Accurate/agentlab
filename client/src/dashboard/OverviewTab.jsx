@@ -2,6 +2,15 @@ import { useMemo } from 'react';
 import { api } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { Empty, ErrorBox, Spinner, fmtPct, shortId } from '../ui.jsx';
+import { Button } from '@/components/ui/button';
+
+/** Evenly spaced whole-percent ticks: the domain is in 5% steps, so a step always divides it. */
+export function chartTicks(d0, d1) {
+  const lo = Math.round(d0 * 100);
+  const span = Math.round(d1 * 100) - lo;
+  const step = [1, 2, 5, 10, 20, 25].find((s) => span % s === 0 && span / s <= 6) ?? span;
+  return Array.from({ length: Math.round(span / step) + 1 }, (_, i) => (lo + i * step) / 100);
+}
 
 function TrendChart({ versions }) {
   const { points, ticks, domain } = useMemo(() => {
@@ -12,8 +21,7 @@ function TrendChart({ versions }) {
     const span = Math.max(hi - lo, 0.02);
     const d0 = Math.max(0, Math.floor((lo - span * 0.25) * 20) / 20);
     const d1 = Math.min(1, Math.ceil((hi + span * 0.25) * 20) / 20);
-    const ticks = [0, 1, 2, 3, 4].map((i) => d0 + ((d1 - d0) * i) / 4);
-    return { points: versions, ticks, domain: [d0, d1] };
+    return { points: versions, ticks: chartTicks(d0, d1), domain: [d0, d1] };
   }, [versions]);
 
   const W = 900;
@@ -189,9 +197,9 @@ export default function OverviewTab({ projectId, data, onReviewChange }) {
                 {change.data.verification.holdout_passed ? 'passed' : 'failed'} ·{' '}
                 {change.data.verification.accepted ? 'accepted' : 'rejected'}
               </p>
-              <button
+              <Button
                 type="button"
-                className="link"
+                variant="inline" size="inline"
                 onClick={() =>
                   onReviewChange({
                     diagnosisId: change.data.diagnosis.id,
@@ -201,7 +209,7 @@ export default function OverviewTab({ projectId, data, onReviewChange }) {
                 }
               >
                 Review change →
-              </button>
+              </Button>
             </>
           )}
         </div>

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendTurn, hasUserMessage, removeDraft } from './turns.js';
+import { appendTurn, chatContext, hasUserMessage, removeDraft } from './turns.js';
 
 const card = { id: 'test', kind: 'test', status: 'ready', expected: 'No invented facts' };
 const user = { id: 'u', role: 'user', text: 'Run test', cards: [] };
@@ -34,5 +34,28 @@ describe('chat turns', () => {
   it('hides suggestions after the first user turn, even when the request fails', () => {
     assert.equal(hasUserMessage([assistant]), false);
     assert.equal(hasUserMessage([user, assistant]), true);
+  });
+});
+
+describe('chatContext', () => {
+  const said = (text, context, kind = 'chat') => ({ role: 'user', text, kind, context });
+
+  it('keeps context from earlier messages for the rest of the chat', () => {
+    const messages = [said('what is company name', 'Company: ShopCore Logistics'), { role: 'assistant', text: 'ShopCore' }];
+    assert.equal(chatContext(messages, ''), 'Company: ShopCore Logistics');
+  });
+
+  it('adds new context after the old, once each', () => {
+    const messages = [said('a', 'Policy A'), said('b', 'Policy A'), said('c')];
+    assert.equal(chatContext(messages, 'Policy B'), 'Policy A\n\nPolicy B');
+  });
+
+  it('ignores context that belonged to a test run', () => {
+    const messages = [said('Run test: refunds', 'Test-only policy', 'run')];
+    assert.equal(chatContext(messages, ''), '');
+  });
+
+  it('treats older messages without a kind as chat', () => {
+    assert.equal(chatContext([{ role: 'user', text: 'x', context: 'Old policy' }]), 'Old policy');
   });
 });

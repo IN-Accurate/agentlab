@@ -6,6 +6,8 @@ import { useTraceRequests } from './useTraceRequests.js';
 import './traceRequests.css';
 import TraceWaterfall from './TraceWaterfall.jsx';
 import { formatTraceDuration as formatDuration, spanLabel } from './traceTimeline.js';
+import { Button } from '@/components/ui/button';
+import { NativeSelect } from '@/components/ui/native-select';
 
 function flattenTree(roots) {
   const out = [];
@@ -93,7 +95,7 @@ export default function TracesTab({
         <aside className="rail" aria-label="Requests">
           <h3>Requests</h3>
           <div className="rail-filters">
-            <select
+            <NativeSelect wrapperClassName="w-full"
               aria-label="Filter by version"
               value={versionFilter}
               onChange={(e) => patchDash({ traceVersion: e.target.value, traceId: null, spanId: null })}
@@ -104,8 +106,8 @@ export default function TracesTab({
                   {v.label}
                 </option>
               ))}
-            </select>
-            <select
+            </NativeSelect>
+            <NativeSelect wrapperClassName="w-full"
               aria-label="Filter by execution"
               value={statusFilter}
               onChange={(e) => patchDash({ traceStatus: e.target.value, traceId: null, spanId: null })}
@@ -113,7 +115,7 @@ export default function TracesTab({
               <option value="all">Execution: all</option>
               <option value="ok">Execution: ok</option>
               <option value="error">Execution: error</option>
-            </select>
+            </NativeSelect>
           </div>
           {list.loading ? (
             <Spinner />
@@ -145,30 +147,30 @@ export default function TracesTab({
             </ul>
           )}
           <nav className="request-pagination" aria-label="Request pages">
-            <button
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="outline"
               aria-label="Previous requests page"
               disabled={!list.hasPrevious || list.loading}
               onClick={() => turnPage('previous')}
             >
               Previous
-            </button>
+            </Button>
             <span className="request-page-number" aria-live="polite">Page {list.page}</span>
-            <button
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="outline"
               aria-label="Next requests page"
               disabled={!list.hasNext || list.loading || Boolean(list.error)}
               onClick={() => turnPage('next')}
             >
               Next
-            </button>
+            </Button>
           </nav>
           {traceId ? (
-            <button type="button" className="link" onClick={createTest} disabled={!!working}>
+            <Button type="button" variant="inline" size="inline" onClick={createTest} disabled={!!working}>
               Create test from trace →
-            </button>
+            </Button>
           ) : null}
         </aside>
         <div className="runs-main">
@@ -236,9 +238,9 @@ export default function TracesTab({
                 </section>
               ) : null}
               <p>
-                <button type="button" className="link" onClick={diagnose} disabled={!!working}>
+                <Button type="button" variant="inline" size="inline" onClick={diagnose} disabled={!!working}>
                   Diagnose trace →
-                </button>
+                </Button>
               </p>
               {notice ? <p className="muted">{notice}</p> : null}
             </>

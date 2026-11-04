@@ -3,6 +3,7 @@ import { Modal } from '../ui.jsx';
 import Markdown from './Markdown.jsx';
 import { remarkResponsePreview, responseExcerpt } from './responsePreview.js';
 import './responsePreview.css';
+import { Button } from '@/components/ui/button';
 
 const previewPlugins = [remarkResponsePreview];
 
@@ -20,9 +21,9 @@ export default memo(function ResponsePreview({ children, className = '', title =
       </div>
       <div className="response-preview-footer">
         {truncated ? <span className="muted" aria-hidden="true">…</span> : null}
-        <button type="button" className="link response-preview-open" onClick={() => setOpen(true)}>
+        <Button type="button" variant="inline" size="inline" className="response-preview-open" onClick={() => setOpen(true)}>
           View full response
-        </button>
+        </Button>
       </div>
       {open ? (
         <Modal title={title} className="response-modal" onClose={() => setOpen(false)}>

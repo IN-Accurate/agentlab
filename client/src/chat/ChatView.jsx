@@ -5,9 +5,10 @@ import Composer from './Composer.jsx';
 import TestCard from './TestCard.jsx';
 import ResponsePreview from './ResponsePreview.jsx';
 import ChatAvatar from './ChatAvatar.jsx';
-import { appendTurn, hasUserMessage, removeDraft } from './turns.js';
+import { appendTurn, chatContext, hasUserMessage, removeDraft } from './turns.js';
 import { isCredentialExpired } from '../credentialErrors.js';
 import './styles.css';
+import { Button } from '@/components/ui/button';
 
 let counter = 0;
 const nextId = () => `m${Date.now()}-${counter++}`;
@@ -199,7 +200,7 @@ export default function ChatView({
     aborter.current = controller;
     stickToBottom.current = true;
     setChatError('');
-    const userMsg = { id: nextId(), role: 'user', text, kind, cards: [] };
+    const userMsg = { id: nextId(), role: 'user', text, kind, cards: [], ...(context ? { context } : {}) };
     const shell = { id: nextId(), role: 'assistant', text: '', cards: [] };
     const nextTitle = !chat.titleSet ? (runCard?.title || titleFor(text)) : null;
     onPatch(chat.id, (c) => {
@@ -212,7 +213,9 @@ export default function ChatView({
     });
     if (nextTitle) renameProject(nextTitle);
 
-    const bodyText = context ? `${text}\n\nAdditional context:\n${context}` : text;
+    // Chat context is kept for the whole conversation; a test run sends only its own.
+    const policy = kind === 'chat' ? chatContext(chat.messages, context) : context;
+    const bodyText = policy ? `${text}\n\nAdditional context:\n${policy}` : text;
     const history = [...chat.messages, userMsg]
       .filter((m) => m.text)
       .slice(-20)
@@ -315,7 +318,8 @@ export default function ChatView({
         if (kind === 'chat' && acc.text && !acc.failed && !controller.signal.aborted && !c.messages.some((m) => m.cards.some((card) => card.kind === 'test'))) {
           out.messages = c.messages.map((m) => m.id === shell.id ? {
             ...m,
-            cards: [...m.cards, { id: nextId(), kind: 'test', status: 'ready', title: 'New test', expected: text }],
+            // The draft test keeps the chat's policy, so running it tests the same rules.
+            cards: [...m.cards, { id: nextId(), kind: 'test', status: 'ready', title: 'New test', expected: text, ...(policy ? { context: policy } : {}) }],
           } : m);
         }
         if (cardId) {
@@ -462,9 +466,9 @@ export default function ChatView({
           <div className="chat-narrow">
             <h2 className="hero">Connect an agent to get started</h2>
             <p className="muted">Please connect an agent from the Agent Manager.</p>
-            <button type="button" className="btn-secondary btn-accent" onClick={onOpenAgentManager}>
+            <Button type="button" variant="brand" onClick={onOpenAgentManager}>
               Open Agent Manager
-            </button>
+            </Button>
           </div>
         ) : !agentConnected && chat.messages.length === 0 ? (
           <div className="chat-narrow">
@@ -473,9 +477,9 @@ export default function ChatView({
             <p className="muted">
               Reconnect this agent, or switch to a connected agent above.
             </p>
-            <button type="button" className="btn-secondary btn-accent" onClick={reconnect}>
+            <Button type="button" variant="brand" onClick={reconnect}>
               Reconnect agent
-            </button>
+            </Button>
           </div>
         ) : chat.messages.length === 0 ? (
           <div className="chat-narrow">
@@ -495,6 +499,12 @@ export default function ChatView({
                   </header>
                   <div className="message-content">
                     <div className="bubble-user">{m.text}</div>
+                    {m.context ? (
+                      <details className="mt-1 text-right text-xs text-muted-foreground">
+                        <summary className="cursor-pointer list-none">Policy or context attached · kept for this chat</summary>
+                        <p className="mt-1 text-left whitespace-pre-wrap">{m.context}</p>
+                      </details>
+                    ) : null}
                   </div>
                 </article>
               ) : (
@@ -547,13 +557,13 @@ export default function ChatView({
           <div className="chat-narrow">
             <div className="error-box" role="alert">
               <p>{chatError}</p>
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="outline"
                 onClick={reconnect}
               >
                 Reconnect
-              </button>
+              </Button>
             </div>
           </div>
         ) : null}
@@ -562,7 +572,7 @@ export default function ChatView({
         {conn && !agentConnected && !chatError && chat.messages.length > 0 ? (
           <div className="composer-connection-note" role="status">
             <span>This agent needs to reconnect.</span>
-            <button type="button" className="link" onClick={reconnect}>Reconnect agent</button>
+            <Button type="button" variant="inline" size="inline" onClick={reconnect}>Reconnect agent</Button>
           </div>
         ) : null}
         {selectedTest ? <TestCard

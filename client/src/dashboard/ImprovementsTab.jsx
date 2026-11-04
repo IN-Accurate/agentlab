@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { api, pollJob } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { Empty, ErrorBox, Spinner, Verdict, shortId } from '../ui.jsx';
+import { Button } from '@/components/ui/button';
+import { NativeSelect } from '@/components/ui/native-select';
 
 function flatten(config, prefix = '') {
   const out = {};
@@ -127,13 +129,13 @@ export default function ImprovementsTab({
             title="No repair for this diagnosis"
             hint="This project has earlier repairs you can review."
             action={
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="outline"
                 onClick={() => patchDash({ review: { repairId: repairs[0].repair.id } })}
               >
                 Review latest repair
-              </button>
+              </Button>
             }
           />
         ) : (
@@ -194,7 +196,7 @@ export default function ImprovementsTab({
       <div className="card accent-card">
         <label className="muted">
           Review{' '}
-          <select
+          <NativeSelect wrapperClassName="w-full"
             value={repair.id}
             onChange={(e) => patchDash({ review: { repairId: e.target.value } })}
           >
@@ -203,7 +205,7 @@ export default function ImprovementsTab({
                 {r.patch_type} · {d.rule} · {shortId(r.id)}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
       </div>
       <ol className="progression">
@@ -312,9 +314,9 @@ export default function ImprovementsTab({
       ) : (
         <div className="card">
           <p>This repair has not been verified yet.</p>
-          <button type="button" className="btn-primary" disabled={verifying} onClick={verify}>
+          <Button type="button" variant="default" disabled={verifying} onClick={verify}>
             {verifying ? 'Verifying…' : 'Verify repair'}
-          </button>
+          </Button>
           {actionError ? (
             <p className="field-error" role="alert">
               {actionError}

@@ -26,8 +26,10 @@ import {
 } from './chatGroups.js';
 import { loadUi, saveUi } from './uiState.js';
 import LogoMark from './LogoMark.jsx';
-import { Spinner } from './ui.jsx';
+import { Plus } from 'lucide-react';
+import { Segmented, Spinner } from './ui.jsx';
 import { api } from './api.js';
+import { Button } from '@/components/ui/button';
 
 const loadChatView = () => import('./chat/ChatView.jsx');
 const loadConnectForm = () => import('./chat/ConnectForm.jsx');
@@ -481,35 +483,30 @@ export default function App() {
           <span>AgentLab</span>
         </div>
         {connectedAgents.length ? (
-          <button
+          <Button
             type="button"
-            className="new-chat"
+            variant="ghost"
+            className="new-chat w-full justify-start"
             onClick={() => createChat()}
             onPointerEnter={() => preloadView(loadChatView)}
             onFocus={() => preloadView(loadChatView)}
           >
-            <span aria-hidden="true">＋</span> New chat
-          </button>
+            <Plus aria-hidden="true" /> New chat
+          </Button>
         ) : null}
         <nav aria-label="Recent chats">
           <div className="sidebar-heading-row">
             <p className="sidebar-heading">Recent chats</p>
-            <div className="group-toggle" role="group" aria-label="Group chats by">
-              <button
-                type="button"
-                aria-pressed={groupMode === 'date'}
-                onClick={() => setGroupMode('date')}
-              >
-                Date
-              </button>
-              <button
-                type="button"
-                aria-pressed={groupMode === 'agent'}
-                onClick={() => setGroupMode('agent')}
-              >
-                Agent
-              </button>
-            </div>
+            <Segmented
+              label="Group chats by"
+              className="h-7 p-0.5 [&>button]:px-2 [&>button]:text-xs"
+              value={groupMode}
+              onChange={setGroupMode}
+              options={[
+                ['date', 'Date'],
+                ['agent', 'Agent'],
+              ]}
+            />
           </div>
           {groups.map((group) => (
             <div key={group.key} className="chat-group">
@@ -634,57 +631,57 @@ export default function App() {
                             <dd>{agent.endpoint}</dd>
                           </dl>
                           <div className="connect-actions">
-                            <button
+                            <Button
                               type="button"
-                              className="btn-secondary"
+                              variant="outline"
                               onClick={() => reconnectAgent(agent.id)}
                             >
                               Reconnect
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                               type="button"
-                              className="btn-secondary"
+                              variant="outline"
                               onClick={() => createChat(agent)}
                               disabled={!isConnected(agent, nowMs)}
                               title={isConnected(agent, nowMs) ? undefined : 'Reconnect this agent first'}
                             >
                               New chat with this agent
-                            </button>
+                            </Button>
                             {!agent.isDefault && isConnected(agent, nowMs) ? (
-                              <button
+                              <Button
                                 type="button"
-                                className="btn-secondary"
+                                variant="outline"
                                 onClick={() => setDefaultAgent(agent.id)}
                               >
                                 Set as default
-                              </button>
+                              </Button>
                             ) : null}
                             {agent.isDefault ? (
-                              <button
+                              <Button
                                 type="button"
-                                className="btn-secondary"
+                                variant="outline"
                                 disabled
                                 title="The default agent can't be deleted"
                               >
                                 Delete
-                              </button>
+                              </Button>
                             ) : (
-                              <button
+                              <Button
                                 type="button"
-                                className="btn-secondary"
+                                variant="outline"
                                 onClick={() => deleteAgent(agent.id)}
                               >
                                 Delete
-                              </button>
+                              </Button>
                             )}
                           </div>
                         </section>
                       </li>
                     ))}
                   </ul>
-                  <button
+                  <Button
                     type="button"
-                    className="btn-secondary"
+                    variant="outline"
                     onClick={() => {
                       setConnectNotice(null);
                       setReconnectingAgentId(null);
@@ -692,7 +689,7 @@ export default function App() {
                     }}
                   >
                     Connect another agent
-                  </button>
+                  </Button>
                 </>
               ) : (
                 <>
@@ -729,6 +726,7 @@ export default function App() {
           <DashboardView
             dash={dash}
             patchDash={patchDash}
+            agents={agents}
             chatCredentialId={chatCredentialId}
             onContinueInChat={continueInChat}
             onOpenAgentManager={openAgentManager}

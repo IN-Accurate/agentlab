@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, Plus, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 function sizeToContent(textarea) {
   if (!textarea) return;
@@ -78,16 +79,16 @@ export default function Composer({ disabled, placeholder, onSend }) {
         }}
       />
       <div className="composer-row">
-        <button
+        <Button
           type="button"
-          className="btn-ghost"
+          variant="ghost" size="icon-sm"
           aria-label={showContext ? 'Hide policy or context' : 'Add policy or context'}
           aria-expanded={showContext}
           disabled={disabled}
           onClick={() => setShowContext((v) => !v)}
         >
           {showContext ? <X size={17} aria-hidden="true" /> : <Plus size={17} aria-hidden="true" />}
-        </button>
+        </Button>
         <button
           type="button"
           className="btn-send"

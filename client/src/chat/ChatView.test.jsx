@@ -48,6 +48,28 @@ describe('chat interaction regressions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reconnect', exact: true }));
     expect(onReconnectAgent).toHaveBeenCalledWith('member');
   });
+  it('keeps policy or context given earlier for the follow-up questions', async () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add policy or context' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Optional policy or context' }), {
+      target: { value: 'Company: ShopCore Logistics' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'what is company name' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await act(async () => { emit('message.delta', { text: 'ShopCore Logistics.' }); finish(); });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy());
+    expect(screen.getByText(/Policy or context attached/)).toBeTruthy();
+    // The draft test offered after the reply carries the same policy.
+    expect(screen.getByRole('textbox', { name: 'Policy or context' }).value).toBe('Company: ShopCore Logistics');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'what does this company do' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2));
+    const follow = streamChat.mock.calls[1][1];
+    expect(follow.message).toBe('what does this company do\n\nAdditional context:\nCompany: ShopCore Logistics');
+    expect(follow.history.at(-1)).toEqual({ role: 'user', content: 'what does this company do' });
+  });
+
   it('lets the user remove a selected suggestion before sending any message', () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: /No made-up facts/ }));
