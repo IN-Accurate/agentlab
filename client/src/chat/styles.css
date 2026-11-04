@@ -13,6 +13,11 @@
     gap: 10px;
     width: 100%;
     animation: message-enter 160ms ease-out;
+    /* Off-screen messages skip layout and paint, so a long chat stays cheap to open
+       and to relayout (the composer measures its height on every keystroke).
+       "auto" remembers each message's real size once it has been seen. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 160px;
   }
 
   .message-head { display: flex; align-items: center; gap: 9px; min-height: 32px; }

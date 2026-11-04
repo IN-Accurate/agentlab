@@ -70,6 +70,26 @@ describe('chat interaction regressions', () => {
     expect(follow.history.at(-1)).toEqual({ role: 'user', content: 'what does this company do' });
   });
 
+  it('opens a long chat at its latest messages and loads earlier ones on request', () => {
+    const messages = Array.from({ length: 120 }, (_, n) => ({
+      id: `m${n}`, role: n % 2 ? 'assistant' : 'user', text: `message ${n}`, kind: 'chat', cards: [],
+    }));
+    function Long() {
+      const [chat, setChat] = useState({ id: 'long', title: 'Long chat', connection, messages, streaming: false });
+      return <ChatView chat={chat} agents={[agent]} onPatch={(_id, update) => setChat(update)} />;
+    }
+    render(<Long />);
+    expect(screen.getAllByRole('article')).toHaveLength(40);
+    expect(screen.getByText('message 119')).toBeTruthy();
+    expect(screen.queryByText('message 79')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show earlier messages (80)' }));
+    expect(screen.getAllByRole('article')).toHaveLength(80);
+    fireEvent.click(screen.getByRole('button', { name: 'Show earlier messages (40)' }));
+    expect(screen.getAllByRole('article')).toHaveLength(120);
+    expect(screen.getByText('message 0')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Show earlier messages/ })).toBeNull();
+  });
+
   it('lets the user remove a selected suggestion before sending any message', () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: /No made-up facts/ }));

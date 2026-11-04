@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getAgentForChat, isConnected } from '../agentStore.js';
 import { api, proposeFix, streamChat } from '../api.js';
 import Composer from './Composer.jsx';
@@ -70,6 +70,9 @@ const SUGGESTED_TASKS = [
   },
 ];
 
+// Messages rendered when a chat opens, and how many more each "Show earlier" adds.
+export const MESSAGE_PAGE = 40;
+
 function titleFor(text) {
   const words = text.split(/\s+/).filter(Boolean);
   const head = words.slice(0, 6).join(' ');
@@ -112,6 +115,12 @@ export default function ChatView({
   onOpenReview,
 }) {
   const [chatError, setChatError] = useState('');
+  // Long chats render their latest messages first; earlier ones load on request,
+  // so opening a chat never mounts (and Markdown-parses) its whole history.
+  const [shown, setShown] = useState(MESSAGE_PAGE);
+  const hiddenCount = Math.max(0, chat.messages.length - shown);
+  const visibleMessages = hiddenCount ? chat.messages.slice(hiddenCount) : chat.messages;
+  const scrollAnchor = useRef(null);
   const [findingFix, setFindingFix] = useState(null);
   const [selectedTest, setSelectedTest] = useState(null);
   // null routes ambiguous team failures to Manager; undefined uses this chat's agent.
@@ -132,6 +141,20 @@ export default function ChatView({
     const el = scrollRef.current;
     if (el && stickToBottom.current) el.scrollTop = chat.messages.length ? el.scrollHeight : 0;
   }, [chat.messages.length]);
+
+  // Earlier messages are added above the reader: keep their view where it was.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && scrollAnchor.current !== null) el.scrollTop = el.scrollHeight - scrollAnchor.current;
+    scrollAnchor.current = null;
+  }, [shown]);
+
+  function showEarlier() {
+    const el = scrollRef.current;
+    scrollAnchor.current = el ? el.scrollHeight - el.scrollTop : null;
+    stickToBottom.current = false;
+    setShown((count) => count + MESSAGE_PAGE);
+  }
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -505,7 +528,12 @@ export default function ChatView({
           </div>
         ) : (
           <div className="chat-narrow messages">
-            {chat.messages.map((m) =>
+            {hiddenCount ? (
+              <Button type="button" variant="outline" size="sm" className="self-center" onClick={showEarlier}>
+                Show earlier messages ({hiddenCount})
+              </Button>
+            ) : null}
+            {visibleMessages.map((m) =>
               m.role === 'user' ? (
                 <article key={m.id} className="message-row message-user" aria-label="Your message">
                   <header className="message-head">
