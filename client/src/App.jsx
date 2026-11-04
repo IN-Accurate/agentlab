@@ -722,6 +722,10 @@ export default function App() {
                     agents={agents}
                     reconnectAgent={reconnectingAgent}
                     onConnect={connectAgent}
+                    onRemove={(agentId) => {
+                      deleteAgent(agentId);
+                      setReconnectingAgentId(null);
+                    }}
                     onCancel={agents.length ? () => {
                       setChangingAgent(false);
                       setReconnectingAgentId(null);

@@ -4,6 +4,9 @@ import { api, ApiError } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { Field, Spinner } from '../ui.jsx';
 import { isCredentialExpired } from '../credentialErrors.js';
+
+const MISSING_PROJECT =
+  'This agent no longer exists on the server. It was deleted, or connected while the app used a different database. Remove it, then connect it again as a new agent.';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -15,8 +18,11 @@ export default function ConnectForm({
   reconnectAgent = null,
   onConnect,
   onCancel,
+  onRemove,
 }) {
   const reconnecting = Boolean(reconnectAgent);
+  // The agent's project no longer exists (deleted, or made on another server).
+  const [projectGone, setProjectGone] = useState(false);
   const [name, setName] = useState(reconnectAgent?.name ?? initialName);
   const [endpoint, setEndpoint] = useState(reconnectAgent?.endpoint ?? initialEndpoint);
   const [model, setModel] = useState(reconnectAgent?.model ?? initialModel);
@@ -138,6 +144,11 @@ export default function ConnectForm({
       );
     } catch (error) {
       if (error?.name === 'AbortError') return;
+      if (reconnecting && error instanceof ApiError && error.status === 404 && !isCredentialExpired(error)) {
+        setProjectGone(true);
+        setFormError(MISSING_PROJECT);
+        return;
+      }
       if (isCredentialExpired(error) && stash.current) {
         stash.current.credentialId = null;
         stash.current.expiresAt = null;
@@ -261,9 +272,15 @@ export default function ConnectForm({
       ) : null}
       {!reconnecting && form.isFirst ? <p className="muted">{FIRST_DEFAULT_NOTE}</p> : null}
       <div className="connect-actions">
+        {projectGone && onRemove ? (
+          <Button type="button" variant="destructive" className="flex-1" onClick={() => onRemove(reconnectAgent.id)}>
+            Remove this agent
+          </Button>
+        ) : (
         <Button type="submit" variant="brand" className="flex-1" disabled={pending}>
           {pending ? <Spinner label={reconnecting ? 'Reconnecting…' : 'Connecting…'} /> : reconnecting ? 'Reconnect agent' : 'Connect agent'}
         </Button>
+        )}
         {onCancel ? (
           <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>
             Cancel

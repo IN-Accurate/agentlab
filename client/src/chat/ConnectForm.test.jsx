@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ConnectForm from './ConnectForm.jsx';
-import { api } from '../api.js';
+import { api, ApiError } from '../api.js';
 
 const controls = vi.hoisted(() => ({ defaults: { available: true, base_url: 'https://api.meta.ai/v1', model: 'muse-spark-1.3' } }));
 vi.mock('../hooks.js', () => ({ useFetch: () => ({ data: controls.defaults, loading: false }) }));
@@ -39,6 +39,26 @@ describe('connect and reconnect forms', () => {
     await waitFor(() => expect(onConnect).toHaveBeenCalledTimes(1));
     expect(onConnect.mock.calls[0][0]).toMatchObject({ expiresAt, credentialSource: 'default' });
     expect(onConnect.mock.calls[0][1]).toEqual({ setAsDefault: true });
+  });
+
+  it('offers to remove an agent whose project no longer exists instead of retrying forever', async () => {
+    api.mockImplementation(async (path) => {
+      if (path.startsWith('/v1/credentials')) return { credential_id: 'fresh-key', expires_at: expiresAt };
+      if (path.endsWith('/test-connection')) {
+        throw Object.assign(new ApiError('Record not found'), { status: 404, code: 'not_found' });
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+    const onConnect = vi.fn();
+    const onRemove = vi.fn();
+    render(<ConnectForm agents={[existing]} reconnectAgent={existing} onConnect={onConnect} onRemove={onRemove} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect agent' }));
+    await screen.findByText(/This agent no longer exists on the server/);
+    expect(screen.queryByRole('button', { name: 'Reconnect agent' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove this agent' }));
+    expect(onRemove).toHaveBeenCalledWith('saved-project');
+    expect(onConnect).not.toHaveBeenCalled();
+    expect(api.mock.calls.some(([path]) => path === '/v1/projects')).toBe(false);
   });
 
   it('reconnects the same project/version using a fresh server credential without creating replacements', async () => {
