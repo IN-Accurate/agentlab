@@ -203,7 +203,7 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
   );
 }
 
-export default function DashboardView({ dash, patchDash, chatCredentialId, onContinueInChat }) {
+export default function DashboardView({ dash, patchDash, chatCredentialId, onContinueInChat, onOpenAgentManager }) {
   const [dialog, setDialog] = useState(false);
   const [importing, setImporting] = useState(false);
   const projects = useFetch('projects', () => api('/v1/projects?limit=100'));
@@ -231,10 +231,15 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
   if (projects.error) return <ErrorBox error={projects.error} onRetry={projects.reload} />;
   if (!projects.data?.items?.length)
     return (
-      <Empty
-        title="No projects yet"
-        hint="Connect an agent in a chat to create your first project."
-      />
+      <div className="chat-narrow">
+        <Empty
+          title="No projects yet"
+          hint="Connect an agent in a chat to create your first project."
+        />
+        <button type="button" className="btn-secondary btn-accent" onClick={onOpenAgentManager}>
+          Open Agent Manager
+        </button>
+      </div>
     );
   if (!dash.projectId) return <Spinner />;
 

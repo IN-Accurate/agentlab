@@ -14,6 +14,10 @@ export function chatCreatedAt(chat) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+export function chatAgentId(chat) {
+  return chat?.agentId ?? chat?.connection?.projectId ?? null;
+}
+
 export function startOfToday(nowMs = Date.now()) {
   const d = new Date(nowMs);
   d.setHours(0, 0, 0, 0);

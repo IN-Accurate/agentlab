@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getAgentForChat, isConnected } from '../agentStore.js';
 import { api, proposeFix, streamChat } from '../api.js';
 import Composer from './Composer.jsx';
 import TestCard from './TestCard.jsx';
@@ -88,6 +89,8 @@ function SuggestedTests({ heading, tests, onAdd }) {
 
 export default function ChatView({
   chat,
+  agents = [],
+  nowMs = Date.now(),
   agentKeys = {},
   onPatch,
   onOpenAgentManager,
@@ -99,6 +102,8 @@ export default function ChatView({
   const aborter = useRef(null);
   const scrollRef = useRef(null);
   const conn = chat.connection;
+  const agent = getAgentForChat(agents, chat);
+  const agentConnected = isConnected(agent, nowMs);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -327,7 +332,7 @@ export default function ChatView({
   }
 
   const added = new Set(chat.messages.flatMap((m) => m.cards).map((card) => card.expected));
-  const suggestions = conn && !chat.streaming ? (
+  const suggestions = conn && agentConnected && !chat.streaming ? (
     <>
       <SuggestedTests
         heading="Suggested tests"
@@ -346,9 +351,39 @@ export default function ChatView({
     <div className="chat">
       <header className="page-head">
         <h1 className="truncate">{chat.title}</h1>
-        <span className="muted truncate">
-          {conn ? `Agent: ${conn.name || conn.model}` : 'Not connected'}
-        </span>
+        {agents.length ? (
+          <select
+            className="chat-agent-select"
+            aria-label="Chat agent"
+            value={chat.agentId ?? ''}
+            onChange={(e) => {
+              const next = agents.find((a) => a.id === e.target.value);
+              if (!next) return;
+              onPatch(chat.id, (c) => ({
+                ...c,
+                agentId: next.id,
+                connection: {
+                  name: next.name,
+                  projectId: next.projectId,
+                  versionId: next.versionId,
+                  credentialId: next.credentialId,
+                  endpoint: next.endpoint,
+                  model: next.model,
+                  ownProject: false,
+                },
+              }));
+            }}
+          >
+            {!chat.agentId ? <option value="">Select agent</option> : null}
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {(a.name || a.model || a.endpoint) + (isConnected(a, nowMs) ? '' : ' · Not connected')}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="muted truncate">Not connected</span>
+        )}
       </header>
       <div className="chat-body" ref={scrollRef}>
         {!conn ? (
@@ -359,9 +394,20 @@ export default function ChatView({
               Open Agent Manager
             </button>
           </div>
+        ) : !agentConnected && chat.messages.length === 0 ? (
+          <div className="chat-narrow">
+            <p className="connected-note">Not connected</p>
+            <h2 className="hero">Agent key expired</h2>
+            <p className="muted">
+              Switch to a connected agent above, or connect a new one from the Agent Manager.
+            </p>
+            <button type="button" className="btn-secondary btn-accent" onClick={onOpenAgentManager}>
+              Open Agent Manager
+            </button>
+          </div>
         ) : chat.messages.length === 0 ? (
           <div className="chat-narrow">
-            <p className="connected-note">Agent connected</p>
+            <p className="connected-note">Connected</p>
             <h2 className="hero">What should we test?</h2>
             <p className="muted">Describe expected behavior or paste a response that went wrong.</p>
             {suggestions}
@@ -428,8 +474,14 @@ export default function ChatView({
       </div>
       <div className="chat-narrow composer-wrap">
         <Composer
-          disabled={!conn || chat.streaming}
-          placeholder={conn ? 'Ask a follow-up…' : 'Connect an agent in Agent Manager to begin'}
+          disabled={!conn || !agentConnected || chat.streaming}
+          placeholder={
+            !conn
+              ? 'Connect an agent in Agent Manager to begin'
+              : !agentConnected
+                ? 'Agent not connected'
+                : 'Ask a follow-up…'
+          }
           onSend={(text, context) => send(text, context)}
         />
       </div>
