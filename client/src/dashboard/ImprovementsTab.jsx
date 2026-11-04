@@ -132,6 +132,9 @@ export default function ImprovementsTab({
 }) {
   const [verifying, setVerifying] = useState(false);
   const [actionError, setActionError] = useState('');
+  // Hooks stay above the early returns below: React needs the same hooks every render.
+  const [proposingRepair, setProposingRepair] = useState(false);
+  const [repairActionError, setRepairActionError] = useState('');
   const loaded = useFetch(`review-${projectId}-${JSON.stringify(dash.review ?? null)}`, () =>
     loadChain(projectId, dash.review),
   );
@@ -177,8 +180,6 @@ export default function ImprovementsTab({
   const replay = diagnosis.evidence?.replay ?? null;
   const changes = diff ? diffConfigs(diff.before, diff.after) : { removed: [], added: [], changed: [] };
 
-  const [proposingRepair, setProposingRepair] = useState(false);
-  const [repairActionError, setRepairActionError] = useState('');
 
   async function proposeRepairFromDiagnosis() {
     if (proposingRepair || !diagnosis?.id) return;
