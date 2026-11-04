@@ -1,11 +1,18 @@
-# 🧪 AgentLab
+# AgentLab
 
-> **Failure-to-fix workbench for applications built on Meta's models.**  
-> Turn a bad answer into a reproducible test, isolate the root cause, propose a fix, and prove it doesn't break anything else.
+> **Meta Developer Hackathon submission.** A failure-to-fix workbench for applications built on Meta's models: turn a bad answer into a reproducible test, isolate the root cause, propose a fix, and prove it doesn't break anything else.
 
 ---
 
-## 🎯 Target Models
+## Submission Overview
+
+Debugging an AI agent usually means reading one bad answer and guessing. AgentLab replaces guessing with a loop: capture the failure as a trace, promote it to a deterministic test, classify the root cause with a transparent rule engine, confirm the diagnosis by controlled replay, generate a targeted repair, and accept the fix only after side-by-side verification shows zero regressions.
+
+The workbench targets agents powered by **Muse Spark** (via the Meta Model API or OpenRouter) and **Llama** (via any OpenAI-compatible endpoint), with guardrail coverage informed by PurpleLlama (Llama Guard, Prompt Guard) and the Llama Stack ecosystem.
+
+---
+
+## Target Models
 
 AgentLab interfaces with target models behind a unified adapter:
 * **Muse Spark** — Accessible via the Meta Model API or OpenRouter.
@@ -13,7 +20,7 @@ AgentLab interfaces with target models behind a unified adapter:
 
 ---
 
-## 🔄 The Improvement Loop
+## The Improvement Loop
 
 
 Trace ➔ Test ➔ Diagnose ➔ Confirm ➔ Repair ➔ Verify
@@ -39,7 +46,7 @@ Trace ➔ Test ➔ Diagnose ➔ Confirm ➔ Repair ➔ Verify
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 * **API Engine:** FastAPI Service
 * **Task Processing:** Redis-backed worker (`arq` / `RQ`)
@@ -48,7 +55,7 @@ Trace ➔ Test ➔ Diagnose ➔ Confirm ➔ Repair ➔ Verify
 
 ---
 
-## 💻 Run Locally
+## Run Locally
 
 ### Prerequisites
 
@@ -101,7 +108,7 @@ Each test builds a fresh schema from `db/agentlab_schema.sql` inside that databa
 
 ---
 
-## 🗄️ Database Schema Overview (15 Tables)
+## Database Schema Overview (15 Tables)
 
 | Domain | Tables |
 | :--- | :--- |
@@ -114,7 +121,7 @@ Each test builds a fresh schema from `db/agentlab_schema.sql` inside that databa
 
 ---
 
-## 🎬 Demo Scenario
+## Demo Scenario
 
 > **Issue:** A customer support bot incorrectly claims refunds are allowed within **60 days**.
 
@@ -125,7 +132,7 @@ Each test builds a fresh schema from `db/agentlab_schema.sql` inside that databa
 
 ---
 
-## 🚫 Out of Scope for v1
+## Out of Scope for v1
 
 * Multi-provider model routing
 * CI/CD gates & deployment contracts
@@ -136,10 +143,9 @@ Each test builds a fresh schema from `db/agentlab_schema.sql` inside that databa
 
 ---
 
-## 🛠️ Built With & Inspired By
+## Built With
 
-* **Core & Infrastructure:** FastAPI, PostgreSQL, Redis, `arq` / `RQ`, Pydantic, Instructor
-* **Ecosystem & Stack:** OGX (formerly Llama Stack), PurpleLlama (Llama Guard, Prompt Guard)
-* **Observability & RAG:** OpenLLMetry, Arize Phoenix, Langfuse, LlamaIndex, Chroma
-* **Testing & Guardrails:** `promptfoo`, DeepEval, Ragas, Guardrails AI, `prompt-ops`
-
+* **Core & Infrastructure:** FastAPI, PostgreSQL, React
+* **Ecosystem & Stack:** Muse Spark
+* **Observability & RAG:** 
+* **Testing & Guardrails:** 
