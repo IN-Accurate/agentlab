@@ -10,11 +10,14 @@ import {
   getDefaultAgent,
   getNewChatAgent,
   isConnected,
+  invalidateCredential,
   listAgents,
   loadAgentStore,
   removeAgent,
   replaceDefaultNote,
   repointChats,
+  reconcileCredentialMetadata,
+  refreshAgentChats,
   restoreChatConnection,
   sanitizeAgents,
   saveAgentStore,
@@ -136,6 +139,65 @@ describe('isConnected', () => {
     assert.equal(isConnected(agent, T0 + KEY_TTL_MS - 1), true);
     assert.equal(isConnected(agent, T0 + KEY_TTL_MS + 1), false);
     assert.equal(isConnected({ ...agent, credentialId: null }, T0), false);
+  });
+});
+
+describe('credential recovery', () => {
+  it('invalidates the failed key without changing agent identity or default selection', () => {
+    const agents = addAgent([], conn(), { now: T0 });
+    const invalid = invalidateCredential(agents, 'k1');
+    assert.equal(invalid[0].id, 'p1');
+    assert.equal(invalid[0].isDefault, true);
+    assert.equal(invalid[0].credentialId, 'k1');
+    assert.equal(invalid[0].expiresAt, 0);
+    assert.equal(isConnected(invalid[0], T0), false);
+    const storage = fakeStorage();
+    saveAgentStore(storage, invalid);
+    assert.equal(isConnected(loadAgentStore(storage, { now: T0 })[0], T0), false);
+  });
+
+  it('ignores failures and metadata for a key that has already been replaced', () => {
+    const agents = addAgent([], conn({ credentialId: 'replacement' }), { now: T0 });
+    assert.equal(invalidateCredential(agents, 'k1'), agents);
+    assert.equal(reconcileCredentialMetadata(agents, 'k1', { expires_at: new Date(T0 - 1).toISOString() }), agents);
+    assert.equal(isConnected(agents[0], T0), true);
+  });
+
+  it('uses authoritative expiry and does not revive explicitly invalid credentials from a late metadata response', () => {
+    const agents = addAgent([], conn(), { now: T0 });
+    const reconciled = reconcileCredentialMetadata(agents, 'k1', {
+      credential_id: 'k1', expires_at: new Date(T0 - 1).toISOString(),
+    });
+    assert.equal(isConnected(reconciled[0], T0), false);
+    const invalid = invalidateCredential(agents, 'k1');
+    assert.equal(reconcileCredentialMetadata(invalid, 'k1', {
+      expires_at: new Date(T0 + KEY_TTL_MS).toISOString(),
+    }), invalid);
+    assert.equal(reconcileCredentialMetadata(agents, 'k1', { expires_at: 'invalid' }), agents);
+  });
+
+  it('reconnects with the backend expiry and refreshes matching chats without changing their history', () => {
+    const invalid = invalidateCredential(addAgent([], conn(), { now: T0 }), 'k1');
+    const expiry = T0 + 60_000;
+    const [fresh] = addAgent(invalid, conn({ credentialId: 'replacement', expires_at: new Date(expiry).toISOString(), credentialSource: 'custom' }), { now: T0 + 1 });
+    assert.equal(fresh.expiresAt, expiry);
+    assert.equal(fresh.credentialInvalid, false);
+    assert.equal(fresh.isDefault, true);
+    const storage = fakeStorage();
+    saveAgentStore(storage, [fresh]);
+    assert.equal(loadAgentStore(storage, { now: T0 + 1 })[0].credentialSource, 'custom');
+    const messages = [{ id: 'm1', text: 'Original response' }];
+    const history = { id: 'chat', agentId: 'p1', connectionDismissed: true, messages, title: 'Original chat' };
+    const other = { id: 'other', agentId: 'p2', messages: [] };
+    const refreshed = refreshAgentChats([history, other], fresh);
+    assert.equal(refreshed.length, 2);
+    assert.equal(refreshed[0].id, history.id);
+    assert.equal(refreshed[0].title, history.title);
+    assert.equal(refreshed[0].messages, messages);
+    assert.equal(refreshed[0].connection.credentialId, 'replacement');
+    assert.equal(refreshed[0].connection.credentialSource, 'custom');
+    assert.equal(refreshed[0].connectionDismissed, false);
+    assert.equal(refreshed[1], other);
   });
 });
 

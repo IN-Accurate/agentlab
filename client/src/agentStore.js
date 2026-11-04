@@ -9,6 +9,13 @@
 export const AGENTS_KEY = 'agentlab.agents.v1';
 export const KEY_TTL_MS = 2 * 60 * 60 * 1000;
 
+function expiryTime(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function asRecord(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const id = raw.id ?? raw.projectId ?? null;
@@ -19,13 +26,15 @@ function asRecord(raw) {
     projectId: typeof raw.projectId === 'string' ? raw.projectId : id,
     versionId: raw.versionId ?? null,
     credentialId: raw.credentialId ?? null,
+    credentialSource: ['default', 'custom'].includes(raw.credentialSource) ? raw.credentialSource : null,
+    credentialInvalid: raw.credentialInvalid === true,
     endpoint: raw.endpoint ?? '',
     model: raw.model ?? '',
     ...(Array.isArray(raw.memberProjectIds) ? { memberProjectIds: [...raw.memberProjectIds] } : {}),
     ownProject: raw.ownProject ?? false,
     isDefault: raw.isDefault === true,
     connectedAt: typeof raw.connectedAt === 'number' ? raw.connectedAt : null,
-    expiresAt: typeof raw.expiresAt === 'number' ? raw.expiresAt : null,
+    expiresAt: expiryTime(raw.expiresAt ?? raw.expires_at),
   };
 }
 
@@ -70,7 +79,34 @@ export function saveAgentStore(storage, agents) {
 }
 
 export function isConnected(agent, now = Date.now()) {
-  return !!agent?.credentialId && typeof agent.expiresAt === 'number' && now < agent.expiresAt;
+  return !!agent?.credentialId && !agent.credentialInvalid && typeof agent.expiresAt === 'number' && now < agent.expiresAt;
+}
+
+// Credential IDs are part of the guard: a late failure from an old request must
+// never disconnect a replacement key that has already reconnected successfully.
+export function invalidateCredential(agents, credentialId) {
+  if (!credentialId) return agents;
+  let changed = false;
+  const next = (agents ?? []).map((agent) => {
+    if (agent.credentialId !== credentialId || (agent.credentialInvalid && agent.expiresAt === 0)) return agent;
+    changed = true;
+    return { ...agent, credentialInvalid: true, expiresAt: 0 };
+  });
+  return changed ? next : agents;
+}
+
+export function reconcileCredentialMetadata(agents, credentialId, metadata) {
+  const expiresAt = expiryTime(metadata?.expires_at ?? metadata?.expiresAt);
+  if (expiresAt === null || (metadata?.credential_id && metadata.credential_id !== credentialId)) return agents;
+  let changed = false;
+  const next = (agents ?? []).map((agent) => {
+    // An earlier successful metadata response must not undo a later explicit
+    // invalidation. A successful reconnect is what clears that marker.
+    if (agent.credentialId !== credentialId || agent.credentialInvalid || agent.expiresAt === expiresAt) return agent;
+    changed = true;
+    return { ...agent, expiresAt };
+  });
+  return changed ? next : agents;
 }
 
 export function getDefaultAgent(agents) {
@@ -121,6 +157,10 @@ export function addAgent(agents, record, { now = Date.now() } = {}) {
     projectId: id,
     versionId: record.versionId ?? prev?.versionId ?? null,
     credentialId: record.credentialId,
+    credentialSource: ['default', 'custom'].includes(record.credentialSource)
+      ? record.credentialSource
+      : prev?.credentialSource ?? null,
+    credentialInvalid: false,
     endpoint: record.endpoint ?? prev?.endpoint ?? '',
     model: record.model ?? prev?.model ?? '',
     ...((record.memberProjectIds ?? prev?.memberProjectIds)
@@ -129,9 +169,21 @@ export function addAgent(agents, record, { now = Date.now() } = {}) {
     ownProject: record.ownProject ?? prev?.ownProject ?? false,
     isDefault: prev ? prev.isDefault : list.length === 0,
     connectedAt: now,
-    expiresAt: now + KEY_TTL_MS,
+    expiresAt: expiryTime(record.expiresAt ?? record.expires_at) ?? now + KEY_TTL_MS,
   };
   return [next, ...list.filter((a) => a.id !== id)];
+}
+
+export function refreshAgentChats(chats, agent) {
+  return (chats ?? []).map((chat) => {
+    if ((chat.agentId ?? chat.connection?.projectId) !== agent.id) return chat;
+    return {
+      ...chat,
+      agentId: agent.id,
+      connectionDismissed: false,
+      connection: { ...chat.connection, ...agent, ownProject: chat.connection?.ownProject ?? false },
+    };
+  });
 }
 
 export function setDefault(agents, agentId, { now = Date.now() } = {}) {
@@ -174,6 +226,7 @@ export function repointChats(chats, fromAgentId, toAgent) {
         projectId: toAgent.projectId,
         versionId: toAgent.versionId,
         credentialId: toAgent.credentialId,
+        credentialSource: toAgent.credentialSource ?? null,
         endpoint: toAgent.endpoint,
         model: toAgent.model,
         ...(toAgent.memberProjectIds ? { memberProjectIds: toAgent.memberProjectIds } : {}),

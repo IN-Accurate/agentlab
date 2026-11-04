@@ -43,6 +43,48 @@ async def setup_trace(client):
     }
 
 
+async def test_project_scoped_trace_pagination_and_filters(api):
+    client, _ = api
+    first = await setup_trace(client)
+    second = await setup_trace(client)
+    version = first["app_version_id"]
+    project = (await client.get(f"/v1/versions/{version}")).json()["project_id"]
+    expected = []
+    for index in range(5):
+        # Other projects must not consume places in this project's four-item pages.
+        other = {**second, "id": str(uuid4()), "spans": []}
+        assert (await client.post("/v1/traces", json=other)).status_code == 201
+        row = {
+            **first,
+            "id": str(uuid4()),
+            "spans": [],
+            "status": "error" if index == 4 else "ok",
+        }
+        assert (await client.post("/v1/traces", json=row)).status_code == 201
+        expected.append(row["id"])
+    params = {"project_id": project, "limit": 4}
+    page_one = (await client.get("/v1/traces", params=params)).json()
+    assert [row["id"] for row in page_one["items"]] == expected[:4]
+    assert page_one["next_cursor"]
+    page_two = (
+        await client.get(
+            "/v1/traces", params={**params, "cursor": page_one["next_cursor"]}
+        )
+    ).json()
+    assert [row["id"] for row in page_two["items"]] == expected[4:]
+    assert page_two["next_cursor"] is None
+    errors = (
+        await client.get("/v1/traces", params={**params, "status": "error"})
+    ).json()
+    assert [row["id"] for row in errors["items"]] == expected[4:]
+    mismatched = (
+        await client.get(
+            "/v1/traces", params={**params, "version_id": second["app_version_id"]}
+        )
+    ).json()
+    assert mismatched["items"] == []
+
+
 @pytest.mark.asyncio
 async def test_concurrent_idempotent_ingest_and_read_views(api):
     client, app = api

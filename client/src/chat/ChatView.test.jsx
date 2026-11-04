@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ChatView from './ChatView.jsx';
 import Markdown from './Markdown.jsx';
-import { streamChat } from '../api.js';
+import { api, streamChat } from '../api.js';
 
 vi.mock('../api.js', () => ({ api: vi.fn(), proposeFix: vi.fn(), streamChat: vi.fn() }));
 
@@ -13,9 +13,9 @@ let emit;
 let finish;
 let reject;
 
-function Harness() {
+function Harness({ savedAgents = [agent], ...props } = {}) {
   const [chat, setChat] = useState({ id: 'chat', title: 'New chat', connection, messages: [], streaming: false });
-  return <ChatView chat={chat} agents={[agent]} onPatch={(_id, update) => setChat(update)} />;
+  return <ChatView chat={chat} agents={savedAgents} onPatch={(_id, update) => setChat(update)} {...props} />;
 }
 
 beforeEach(() => {
@@ -31,6 +31,23 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
 describe('chat interaction regressions', () => {
+  it('reconnects an expired team member while keeping the healthy coordinator connected', async () => {
+    const member = { ...agent, id: 'member', projectId: 'member', credentialId: 'member-key', isDefault: false };
+    const onCredentialInvalid = vi.fn();
+    const onReconnectAgent = vi.fn();
+    api.mockImplementation(async (path) => {
+      if (path.endsWith('/member-key')) throw { code: 'credential_expired' };
+      return { credential_id: 'key' };
+    });
+    render(<Harness savedAgents={[{ ...agent, memberProjectIds: ['member'] }, member]} agentKeys={{ member: 'member-key' }} onCredentialInvalid={onCredentialInvalid} onReconnectAgent={onReconnectAgent} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Team request' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await act(async () => { reject({ code: 'credential_expired', message: 'A team credential expired' }); });
+    await waitFor(() => expect(onCredentialInvalid).toHaveBeenCalledWith('member-key'));
+    expect(onCredentialInvalid).not.toHaveBeenCalledWith('key');
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect', exact: true }));
+    expect(onReconnectAgent).toHaveBeenCalledWith('member');
+  });
   it('lets the user remove a selected suggestion before sending any message', () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: /No made-up facts/ }));

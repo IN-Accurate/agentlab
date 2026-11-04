@@ -2,29 +2,10 @@ import { useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { Empty, ErrorBox, Spinner, fmtTime, shortId } from '../ui.jsx';
-
-const TYPE_LABELS = {
-  llm: 'LLM',
-  retrieval: 'Retrieval',
-  tool: 'Tool',
-  validation: 'Validation',
-  router: 'Router',
-  agent: 'Agent',
-};
-
-function spanLabel(node) {
-  const label = TYPE_LABELS[node.type] ?? node.type;
-  if (node.type === 'agent' && node.payload?.name) return `${label} · ${node.payload.name}`;
-  if (node.type === 'router' && node.payload?.choice) return `${label} → ${node.payload.choice}`;
-  return label;
-}
-
-function formatDuration(ms) {
-  if (!Number.isFinite(ms)) return '—';
-  const seconds = ms >= 1000;
-  const value = seconds ? ms / 1000 : ms;
-  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${seconds ? 's' : 'ms'}`;
-}
+import { useTraceRequests } from './useTraceRequests.js';
+import './traceRequests.css';
+import TraceWaterfall from './TraceWaterfall.jsx';
+import { formatTraceDuration as formatDuration, spanLabel } from './traceTimeline.js';
 
 function flattenTree(roots) {
   const out = [];
@@ -35,61 +16,6 @@ function flattenTree(roots) {
     }
   })(roots, 0);
   return out;
-}
-
-function Waterfall({ rows, selectedId, onSelect }) {
-  const times = rows
-    .map((r) => new Date(r.node.started_at).getTime())
-    .filter((t) => !Number.isNaN(t));
-  const base = times.length ? Math.min(...times) : 0;
-  const ends = rows.map((r, i) => {
-    const start = times.length ? (new Date(r.node.started_at).getTime() || base) - base : i * 100;
-    return start + (r.node.latency_ms ?? 0);
-  });
-  const total = Math.max(1, ...ends);
-  const ticks = [0, 0.5, 1].map((f) => Math.round(total * f));
-
-  return (
-    <div className="waterfall-wrap scroll-x">
-      <div className="waterfall-axis">
-        <span />
-        <span className="axis-row">
-          {ticks.map((t, i) => (
-            <span key={i}>
-              {formatDuration(t)}
-            </span>
-          ))}
-        </span>
-      </div>
-      <ul className="waterfall">
-        {rows.map((r, i) => {
-          const start = times.length ? (new Date(r.node.started_at).getTime() || base) - base : i * 100;
-          const width = Math.max(2, ((r.node.latency_ms ?? 0) / total) * 100);
-          return (
-            <li key={r.node.id}>
-              <button
-                type="button"
-                className={r.node.id === selectedId ? 'selected' : ''}
-                onClick={() => onSelect(r.node.id)}
-              >
-                <span className="span-name" style={{ paddingLeft: r.depth * 16 }}>
-                  {spanLabel(r.node)}
-                  <span className="muted"> · {r.node.sdk_span_id}</span>
-                </span>
-                <span className="span-bar-track">
-                  <span
-                    className="span-bar"
-                    style={{ left: `${(start / total) * 100}%`, width: `${width}%` }}
-                  />
-                </span>
-                <span className="muted">{formatDuration(r.node.latency_ms)}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
 }
 
 export default function TracesTab({
@@ -106,25 +32,24 @@ export default function TracesTab({
   const versionFilter = dash.traceVersion ?? 'all';
   const statusFilter = dash.traceStatus ?? 'all';
 
-  const versionSig = versions.map((v) => v.version_id).join(',');
-  const list = useFetch(`traces-${projectId}-${versionFilter}-${statusFilter}-${versionSig}`, async () => {
-    const params = new URLSearchParams({ limit: '100' });
-    if (versionFilter !== 'all') params.set('version_id', versionFilter);
-    if (statusFilter !== 'all') params.set('status', statusFilter);
-    const page = await api(`/v1/traces?${params}`);
-    const ids = new Set(versions.map((v) => v.version_id));
-    return (page.items ?? []).filter((t) => versionFilter !== 'all' || ids.has(t.app_version_id));
-  });
+  const list = useTraceRequests(projectId, versionFilter, statusFilter);
 
-  const traceId = dash.traceId ?? list.data?.[0]?.id ?? null;
+  const traceId = dash.traceId ?? list.items[0]?.id ?? null;
   const detail = useFetch(
     traceId ? `trace-${traceId}` : null,
     () => api(`/v1/traces/${traceId}`),
   );
 
   const rows = useMemo(() => flattenTree(detail.data?.span_tree ?? []), [detail.data]);
-  const spanId = dash.spanId ?? rows[0]?.node.id ?? null;
+  const spanId = rows.some((row) => row.node.id === dash.spanId)
+    ? dash.spanId
+    : rows[0]?.node.id ?? null;
   const span = rows.find((r) => r.node.id === spanId)?.node ?? null;
+
+  function turnPage(direction) {
+    list[direction]();
+    patchDash({ traceId: null, spanId: null, traceVerdict: null });
+  }
 
   async function createTest() {
     if (!traceId || working) return;
@@ -194,11 +119,11 @@ export default function TracesTab({
             <Spinner />
           ) : list.error ? (
             <ErrorBox error={list.error} onRetry={list.reload} />
-          ) : !list.data?.length ? (
+          ) : !list.items.length ? (
             <p className="muted">No requests match.</p>
           ) : (
             <ul>
-              {list.data.map((t) => (
+              {list.items.map((t) => (
                 <li key={t.id}>
                   <button
                     type="button"
@@ -219,6 +144,27 @@ export default function TracesTab({
               ))}
             </ul>
           )}
+          <nav className="request-pagination" aria-label="Request pages">
+            <button
+              type="button"
+              className="btn-secondary"
+              aria-label="Previous requests page"
+              disabled={!list.hasPrevious || list.loading}
+              onClick={() => turnPage('previous')}
+            >
+              Previous
+            </button>
+            <span className="request-page-number" aria-live="polite">Page {list.page}</span>
+            <button
+              type="button"
+              className="btn-secondary"
+              aria-label="Next requests page"
+              disabled={!list.hasNext || list.loading || Boolean(list.error)}
+              onClick={() => turnPage('next')}
+            >
+              Next
+            </button>
+          </nav>
           {traceId ? (
             <button type="button" className="link" onClick={createTest} disabled={!!working}>
               Create test from trace →
@@ -226,7 +172,9 @@ export default function TracesTab({
           ) : null}
         </aside>
         <div className="runs-main">
-          {!traceId ? (
+          {list.loading && !traceId ? (
+            <Spinner label="Loading requests…" />
+          ) : !traceId ? (
             <Empty title="No request selected" hint="Select a request from the rail." />
           ) : detail.loading ? (
             <Spinner />
@@ -251,7 +199,7 @@ export default function TracesTab({
               </p>
               <h3>Span tree &amp; timing</h3>
               {rows.length ? (
-                <Waterfall
+                <TraceWaterfall
                   rows={rows}
                   selectedId={spanId}
                   onSelect={(id) => patchDash({ spanId: id })}

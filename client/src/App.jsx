@@ -6,9 +6,12 @@ import {
   getAgentForChat,
   getNewChatAgent,
   isConnected,
+  invalidateCredential,
   loadAgentStore,
   removeAgent,
   repointChats,
+  reconcileCredentialMetadata,
+  refreshAgentChats,
   restoreChatConnection,
   saveAgentStore,
   setDefault,
@@ -24,6 +27,7 @@ import {
 import { loadUi, saveUi } from './uiState.js';
 import LogoMark from './LogoMark.jsx';
 import { Spinner } from './ui.jsx';
+import { api } from './api.js';
 
 const loadChatView = () => import('./chat/ChatView.jsx');
 const loadConnectForm = () => import('./chat/ConnectForm.jsx');
@@ -172,6 +176,7 @@ function newChat(connection) {
           projectId: connection.projectId,
           versionId: connection.versionId,
           credentialId: connection.credentialId,
+          credentialSource: connection.credentialSource ?? null,
           endpoint: connection.endpoint,
           model: connection.model,
           ...(connection.memberProjectIds ? { memberProjectIds: connection.memberProjectIds } : {}),
@@ -201,6 +206,7 @@ export default function App() {
   const [dash, setDash] = useState(savedUi.dash);
   const [menuOpen, setMenuOpen] = useState(false);
   const [changingAgent, setChangingAgent] = useState(false);
+  const [reconnectingAgentId, setReconnectingAgentId] = useState(null);
   const [chatsExpanded, setChatsExpanded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [groupMode, setGroupMode] = useState(() => {
@@ -276,7 +282,41 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  const credentialSignature = JSON.stringify([...new Set(agents.map((a) => a.credentialId).filter(Boolean))]);
+  useEffect(() => {
+    if (view !== 'agents') return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const inFlight = new Set();
+    const check = async (credentialId) => {
+      if (inFlight.has(credentialId)) return;
+      inFlight.add(credentialId);
+      try {
+        const metadata = await api(`/v1/credentials/${encodeURIComponent(credentialId)}`, { signal: controller.signal });
+        if (!cancelled) setAgents((current) => reconcileCredentialMetadata(current, credentialId, metadata));
+      } catch (error) {
+        if (!cancelled && error?.code === 'credential_expired') {
+          setAgents((current) => invalidateCredential(current, credentialId));
+        }
+      } finally {
+        inFlight.delete(credentialId);
+      }
+    };
+    const reconcile = () => {
+      setNowMs(Date.now());
+      for (const credentialId of JSON.parse(credentialSignature)) void check(credentialId);
+    };
+    reconcile();
+    window.addEventListener('focus', reconcile);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.removeEventListener('focus', reconcile);
+    };
+  }, [view, credentialSignature]);
+
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
+  const reconnectingAgent = agents.find((agent) => agent.id === reconnectingAgentId) ?? null;
   const connectedAgents = agents.filter((a) => isConnected(a, nowMs));
   const agentKeys = useMemo(
     () => Object.fromEntries(agents.map((a) => [a.projectId, a.credentialId])),
@@ -329,17 +369,39 @@ export default function App() {
 
   function openAgentManager() {
     setChangingAgent(false);
+    setReconnectingAgentId(null);
     setView('agents');
     setMenuOpen(false);
   }
 
+  function reconnectAgent(agentId) {
+    if (!agents.some((agent) => agent.id === agentId)) return;
+    setReconnectingAgentId(agentId);
+    setChangingAgent(true);
+    setConnectNotice(null);
+    setView('agents');
+    setMenuOpen(false);
+  }
+
+  const credentialInvalid = useCallback((credentialId) => {
+    setAgents((current) => invalidateCredential(current, credentialId));
+  }, []);
+
   function connectAgent(connection, opts = {}) {
+    if (reconnectingAgentId && connection.projectId !== reconnectingAgentId) return;
     const wasFirst = agents.length === 0;
     const added = addAgent(agents, connection);
-    const nextAgents = opts.setAsDefault ? setDefault(added, connection.projectId) : added;
+    const nextAgents = !reconnectingAgentId && opts.setAsDefault ? setDefault(added, connection.projectId) : added;
     const savedAgent = nextAgents.find((a) => a.id === connection.projectId);
     if (!savedAgent) return;
     setAgents(nextAgents);
+    if (reconnectingAgentId) {
+      setChats((cs) => refreshAgentChats(cs, savedAgent));
+      setConnectNotice('Reconnected.');
+      setChangingAgent(false);
+      setReconnectingAgentId(null);
+      return;
+    }
     setConnectNotice(wasFirst ? `Connected. ${DEFAULT_DONE_NOTE}` : 'Connected.');
     const chat = activeChat && !activeChat.connection && !activeChat.messages.length && !activeChat.titleSet
       ? activeChat
@@ -559,7 +621,7 @@ export default function App() {
                     {agents.map((agent) => (
                       <li key={agent.projectId}>
                         <section className="card connected-agent" aria-label={agent.name || agent.model}>
-                          <h2>{agent.name || 'Connected agent'}</h2>
+                          <h2>{agent.name || 'Saved agent'}</h2>
                           <dl className="agent-details">
                             <dt>Status</dt>
                             <dd className={isConnected(agent, nowMs) ? 'good-text' : 'bad-text'}>
@@ -575,9 +637,16 @@ export default function App() {
                             <button
                               type="button"
                               className="btn-secondary"
+                              onClick={() => reconnectAgent(agent.id)}
+                            >
+                              Reconnect
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
                               onClick={() => createChat(agent)}
-                              disabled={!connectedAgents.length}
-                              title={connectedAgents.length ? undefined : 'Connect an agent first'}
+                              disabled={!isConnected(agent, nowMs)}
+                              title={isConnected(agent, nowMs) ? undefined : 'Reconnect this agent first'}
                             >
                               New chat with this agent
                             </button>
@@ -618,6 +687,7 @@ export default function App() {
                     className="btn-secondary"
                     onClick={() => {
                       setConnectNotice(null);
+                      setReconnectingAgentId(null);
                       setChangingAgent(true);
                     }}
                   >
@@ -626,11 +696,16 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <p className="muted">Connect an agent here to use it in new chats.</p>
+                  <p className="muted">{reconnectingAgent ? 'Reconnect this agent to continue using its existing chats.' : 'Connect an agent here to use it in new chats.'}</p>
                   <ConnectForm
+                    key={reconnectingAgentId ?? 'new-agent'}
                     agents={agents}
+                    reconnectAgent={reconnectingAgent}
                     onConnect={connectAgent}
-                    onCancel={agents.length ? () => setChangingAgent(false) : undefined}
+                    onCancel={agents.length ? () => {
+                      setChangingAgent(false);
+                      setReconnectingAgentId(null);
+                    } : undefined}
                   />
                 </>
               )}
@@ -645,6 +720,8 @@ export default function App() {
             agentKeys={agentKeys}
             onPatch={patchChat}
             onOpenAgentManager={openAgentManager}
+            onReconnectAgent={reconnectAgent}
+            onCredentialInvalid={credentialInvalid}
             onOpenEvidence={openEvidence}
             onOpenReview={openReview}
           />

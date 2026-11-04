@@ -6,6 +6,7 @@ import TestCard from './TestCard.jsx';
 import ResponsePreview from './ResponsePreview.jsx';
 import ChatAvatar from './ChatAvatar.jsx';
 import { appendTurn, hasUserMessage, removeDraft } from './turns.js';
+import { isCredentialExpired } from '../credentialErrors.js';
 import './styles.css';
 
 let counter = 0;
@@ -104,12 +105,16 @@ export default function ChatView({
   agentKeys = {},
   onPatch,
   onOpenAgentManager,
+  onReconnectAgent,
+  onCredentialInvalid,
   onOpenEvidence,
   onOpenReview,
 }) {
   const [chatError, setChatError] = useState('');
   const [findingFix, setFindingFix] = useState(null);
   const [selectedTest, setSelectedTest] = useState(null);
+  // null routes ambiguous team failures to Manager; undefined uses this chat's agent.
+  const [reconnectTargetId, setReconnectTargetId] = useState(undefined);
   const aborter = useRef(null);
   const scrollRef = useRef(null);
   const stickToBottom = useRef(true);
@@ -144,6 +149,34 @@ export default function ChatView({
     onPatch(chat.id, (c) => ({ ...c, messages: c.messages.map(map) }));
   }
 
+  function reconnect() {
+    const targetId = reconnectTargetId === undefined ? agent?.id : reconnectTargetId;
+    if (targetId && onReconnectAgent) onReconnectAgent(targetId);
+    else onOpenAgentManager?.();
+  }
+
+  function reportCredentialFailure(error) {
+    if (!isCredentialExpired(error) || !conn?.credentialId) return;
+    const memberIds = (conn.memberProjectIds ?? []).map((id) => agentKeys[id]).filter(Boolean);
+    if (!memberIds.length) {
+      setReconnectTargetId(agent?.id);
+      onCredentialInvalid?.(conn.credentialId);
+      return;
+    }
+    setReconnectTargetId(null);
+    // Team failures can originate from a member's key. Confirm which saved
+    // credential failed rather than disconnecting a healthy coordinator.
+    for (const credentialId of new Set([conn.credentialId, ...memberIds])) {
+      void Promise.resolve().then(() => api(`/v1/credentials/${encodeURIComponent(credentialId)}`)).catch((failure) => {
+        if (isCredentialExpired(failure)) {
+          onCredentialInvalid?.(credentialId);
+          const failedAgent = agents.find((saved) => saved.credentialId === credentialId);
+          if (failedAgent) setReconnectTargetId(failedAgent.id);
+        }
+      });
+    }
+  }
+
   function renameProject(name) {
     if (!conn.ownProject || conn.name) return;
     api(`/v1/projects/${conn.projectId}`, {
@@ -160,6 +193,7 @@ export default function ChatView({
   async function send(text, context, { kind = 'chat', runCard = null } = {}) {
     if (!conn || !agentConnected || chat.streaming || aborter.current) return;
     setSelectedTest(null);
+    setReconnectTargetId(undefined);
     const cardId = runCard?.id ?? null;
     const controller = new AbortController();
     aborter.current = controller;
@@ -251,6 +285,7 @@ export default function ChatView({
               }
             }
           } else if (event === 'error') {
+            reportCredentialFailure(data);
             acc.failed = true;
             const streamMessage = data?.error?.message ?? data?.message ?? 'chat failed';
             acc.text += `\n\nError: ${streamMessage}`;
@@ -262,6 +297,7 @@ export default function ChatView({
       );
     } catch (error) {
       if (error?.name !== 'AbortError') {
+        reportCredentialFailure(error);
         acc.failed = true;
         const message =
           error?.code === 'evaluator_not_configured'
@@ -346,8 +382,10 @@ export default function ChatView({
     setFindingFix(card.id);
     try {
       const diagnosis = await proposeFix(resultId, conn.credentialId);
+      if (diagnosis.repairErrorCode) reportCredentialFailure({ code: diagnosis.repairErrorCode });
       onOpenReview({ diagnosisId: diagnosis.id, repairError: diagnosis.repairError });
     } catch (error) {
+      reportCredentialFailure(error);
       setChatError(error?.message ?? 'Could not start the fix flow.');
     } finally {
       setFindingFix(null);
@@ -387,6 +425,7 @@ export default function ChatView({
               if (!next) return;
               setSelectedTest(null);
               setChatError('');
+              setReconnectTargetId(undefined);
               onPatch(chat.id, (c) => ({
                 ...c,
                 agentId: next.id,
@@ -432,10 +471,10 @@ export default function ChatView({
             <p className="connected-note">Not connected</p>
             <h2 className="hero">Agent key expired</h2>
             <p className="muted">
-              Switch to a connected agent above, or connect a new one from the Agent Manager.
+              Reconnect this agent, or switch to a connected agent above.
             </p>
-            <button type="button" className="btn-secondary btn-accent" onClick={onOpenAgentManager}>
-              Open Agent Manager
+            <button type="button" className="btn-secondary btn-accent" onClick={reconnect}>
+              Reconnect agent
             </button>
           </div>
         ) : chat.messages.length === 0 ? (
@@ -511,11 +550,7 @@ export default function ChatView({
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => {
-                  onPatch(chat.id, (c) => ({ ...c, connection: null, connectionDismissed: true }));
-                  setChatError('');
-                  onOpenAgentManager();
-                }}
+                onClick={reconnect}
               >
                 Reconnect
               </button>
@@ -524,6 +559,12 @@ export default function ChatView({
         ) : null}
       </div>
       <div className="chat-narrow composer-wrap">
+        {conn && !agentConnected && !chatError && chat.messages.length > 0 ? (
+          <div className="composer-connection-note" role="status">
+            <span>This agent needs to reconnect.</span>
+            <button type="button" className="link" onClick={reconnect}>Reconnect agent</button>
+          </div>
+        ) : null}
         {selectedTest ? <TestCard
           key={selectedTest.id}
           card={selectedTest}

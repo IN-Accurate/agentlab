@@ -598,7 +598,7 @@ summary:focus-visible {
   margin-bottom: 4px;
 }
 
-.field input,
+.field input:not([type='checkbox']):not([type='radio']),
 .field select,
 .field textarea,
 .composer textarea,
@@ -614,7 +614,7 @@ summary:focus-visible {
   color: var(--text);
 }
 
-.field input:disabled,
+.field input:not([type='checkbox']):not([type='radio']):disabled,
 .field select:disabled {
   background: var(--sidebar);
 }
@@ -904,6 +904,33 @@ button .loading-status { margin: 0; color: inherit; }
   margin-bottom: 0;
 }
 
+.field label.default-agent-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 0;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.default-agent-toggle input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.default-agent-toggle:has(input:disabled),
+.default-agent-toggle input:disabled {
+  cursor: default;
+}
+
 .connect-form .connect-actions .btn-primary {
   flex: 1 1 auto;
   background: var(--accent);
@@ -964,6 +991,17 @@ button .loading-status { margin: 0; color: inherit; }
   width: 100%;
   padding: 12px 0 8px;
   flex-shrink: 0;
+}
+
+.composer-connection-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 10px;
 }
 
 .composer {
