@@ -290,6 +290,8 @@ export default function DashboardView({
             className="project-select"
             aria-label="Project"
             value={project.id}
+            // Switching mid-delete would let the deletion's fallback override the new choice.
+            disabled={deletingProject}
             onChange={(e) => {
               setPendingDeleteProject(false);
               patchDash({ projectId: e.target.value, ...PROJECT_RESET });

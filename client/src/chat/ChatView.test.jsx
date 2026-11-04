@@ -90,6 +90,20 @@ describe('chat interaction regressions', () => {
     expect(screen.queryByRole('button', { name: /Show earlier messages/ })).toBeNull();
   });
 
+  it('labels test-only context differently from context kept for the chat', () => {
+    const messages = [
+      { id: 'c', role: 'user', kind: 'chat', text: 'Hi', context: 'Chat policy', cards: [] },
+      { id: 'r', role: 'user', kind: 'run', text: 'Run test: x', context: 'Test policy', cards: [] },
+    ];
+    function Labels() {
+      const [chat, setChat] = useState({ id: 'l', title: 'Labels', connection, messages, streaming: false });
+      return <ChatView chat={chat} agents={[agent]} onPatch={(_id, update) => setChat(update)} />;
+    }
+    render(<Labels />);
+    expect(screen.getByText('Policy or context attached · kept for this chat')).toBeTruthy();
+    expect(screen.getByText('Policy or context used for this test')).toBeTruthy();
+  });
+
   it('lets the user remove a selected suggestion before sending any message', () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: /No made-up facts/ }));

@@ -545,7 +545,9 @@ export default function ChatView({
                     <div className="bubble-user">{m.text}</div>
                     {m.context ? (
                       <details className="mt-1 text-right text-xs text-muted-foreground">
-                        <summary className="cursor-pointer list-none">Policy or context attached · kept for this chat</summary>
+                        <summary className="cursor-pointer list-none">
+                          {m.kind === 'run' ? 'Policy or context used for this test' : 'Policy or context attached · kept for this chat'}
+                        </summary>
                         <p className="mt-1 text-left whitespace-pre-wrap">{m.context}</p>
                       </details>
                     ) : null}
