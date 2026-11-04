@@ -39,3 +39,16 @@ export function labelDuplicates(projects) {
 export function selectedProject(projects, projectId) {
   return projects.find((p) => p.id === projectId) ?? projects[0] ?? null;
 }
+
+// Selections that belong to one project; cleared whenever the project changes.
+export const PROJECT_RESET = {
+  runId: null,
+  resultId: null,
+  traceId: null,
+  review: null,
+  spanId: null,
+  runVersion: 'all',
+  traceVersion: 'all',
+  compareA: null,
+  compareB: null,
+};

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, pollJob } from '../api.js';
 import { useFetch } from '../hooks.js';
-import { fetchOwnProjects, ownProjectIds, selectedProject } from './projectScope.js';
+import { PROJECT_RESET, fetchOwnProjects, ownProjectIds, selectedProject } from './projectScope.js';
 import { Empty, ErrorBox, Field, Spinner } from '../ui.jsx';
 import { Modal } from '../modal.jsx';
 import HuggingFaceDialog from './HuggingFaceDialog.jsx';
@@ -228,7 +228,7 @@ export default function DashboardView({
   useEffect(() => {
     // Keep the data and the picker on the same project: a remembered project that is
     // no longer one of the user's agents falls back to their first agent.
-    if (project && project.id !== dash.projectId) patchDash({ projectId: project.id });
+    if (project && project.id !== dash.projectId) patchDash({ projectId: project.id, ...PROJECT_RESET });
   }, [project, dash.projectId, patchDash]);
 
   const board = useFetch(
@@ -267,18 +267,7 @@ export default function DashboardView({
     try {
       await api(`/v1/projects/${project.id}`, { method: 'DELETE' });
       const remaining = mine.filter((p) => p.id !== project.id);
-      patchDash({
-        projectId: remaining[0]?.id ?? null,
-        runId: null,
-        resultId: null,
-        traceId: null,
-        review: null,
-        spanId: null,
-        runVersion: 'all',
-        traceVersion: 'all',
-        compareA: null,
-        compareB: null,
-      });
+      patchDash({ projectId: remaining[0]?.id ?? null, ...PROJECT_RESET });
       projects.reload();
       if (showToast) {
         showToast({ message: `Project "${project.name}" deleted` });
@@ -303,18 +292,7 @@ export default function DashboardView({
             value={project.id}
             onChange={(e) => {
               setPendingDeleteProject(false);
-              patchDash({
-                projectId: e.target.value,
-                runId: null,
-                resultId: null,
-                traceId: null,
-                review: null,
-                spanId: null,
-                runVersion: 'all',
-                traceVersion: 'all',
-                compareA: null,
-                compareB: null,
-              });
+              patchDash({ projectId: e.target.value, ...PROJECT_RESET });
             }}
           >
             {mine.map((p) => (

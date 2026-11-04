@@ -28,6 +28,7 @@ import { loadUi, saveUi } from './uiState.js';
 import LogoMark from './LogoMark.jsx';
 import { Plus } from 'lucide-react';
 import { Segmented, Spinner, Toast, shortId } from './ui.jsx';
+import { PROJECT_RESET } from './dashboard/projectScope.js';
 import { api } from './api.js';
 import { Button } from '@/components/ui/button';
 
@@ -478,11 +479,14 @@ export default function App() {
   function openReview(review) {
     // The review belongs to the chat's agent, not whichever project the dashboard
     // showed last; without this the Improvements tab waited forever.
+    const projectId =
+      getAgentForChat(agents, activeChat)?.projectId ?? activeChat?.connection?.projectId ?? dash.projectId;
+    // A different project starts clean; only the review being opened carries over.
     patchDash({
+      ...(projectId !== dash.projectId ? PROJECT_RESET : {}),
       tab: 'improvements',
       review,
-      projectId:
-        getAgentForChat(agents, activeChat)?.projectId ?? activeChat?.connection?.projectId ?? dash.projectId,
+      projectId,
     });
     setView('dashboard');
   }

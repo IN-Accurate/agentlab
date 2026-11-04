@@ -24,7 +24,7 @@ AgentLab interfaces with target models behind a unified, OpenAI-compatible adapt
 
 ### How AgentLab uses Meta's model
 
-Every model call in AgentLab runs on Muse. One model plays six roles:
+In the default setup (and the demo), every model call runs on Muse, and one model plays six roles. Each role uses whichever model its key and agent config name, so the same roles can run on a Llama endpoint instead:
 
 | Role | What Muse does |
 | :--- | :--- |
@@ -75,7 +75,7 @@ Trace ➔ Test ➔ Diagnose ➔ Confirm ➔ Repair ➔ Verify
 
 ### Highlights
 
-* **Business policy in context** — a test's policy goes into the agent's instructions, the agent is told to answer only from it, and the judge fails answers that go beyond it. In chat, attached policy is kept for the whole conversation.
+* **Business policy in context** — a test's policy goes into the agent's instructions, and the agent is told to answer only from its instructions, that policy, and any other context or tool results. The judge fails answers that add facts, limits or promises beyond those sources. In chat, attached policy is kept for the whole conversation.
 * **Policy suggestions** (API: `POST /v1/projects/{id}/policy-suggestions`) — draft policies and tests from an agent's name and prompt, then customise them for your company.
 * **Tool testing** — simulated tools, built-in Wikipedia search and connected HTTPS endpoints; tests can require or forbid tool calls, or demand answers grounded in tool results.
 * **Agent teams** — a coordinator, members on their own keys, rules routing with a fallback, and step/token limits, all visible in the trace.

@@ -54,6 +54,7 @@ function Harness({ agents, start = {} }) {
   return (
     <>
       <output data-testid="selected">{dash.projectId ?? ''}</output>
+      <output data-testid="leftover">{[dash.runId, dash.traceId].filter(Boolean).join(',')}</output>
       <DashboardView
         dash={dash}
         patchDash={(patch) => setDash((old) => ({ ...old, ...patch }))}
@@ -76,8 +77,15 @@ describe('dashboard project picker', () => {
 
   it('moves a remembered project that is not the user’s to their first agent', async () => {
     mockApi();
-    render(<Harness agents={[{ projectId: 'mine' }]} start={{ projectId: 'someone-else' }} />);
+    render(
+      <Harness
+        agents={[{ projectId: 'mine' }]}
+        start={{ projectId: 'someone-else', runId: 'their-run', traceId: 'their-trace' }}
+      />,
+    );
     await waitFor(() => expect(screen.getByTestId('selected').textContent).toBe('mine'));
+    // The other project's run and trace must not be shown under the new one.
+    expect(screen.getByTestId('leftover').textContent).toBe('');
     await waitFor(() =>
       expect(api.mock.calls.some(([path]) => path === '/v1/projects/mine/dashboard')).toBe(true),
     );

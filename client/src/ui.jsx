@@ -13,7 +13,7 @@ export function Spinner({ label = 'Loading…' }) {
       role="status"
       aria-live="polite"
     >
-      <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden="true" />
+      <LoaderCircle className="size-4 shrink-0 motion-safe:animate-spin" aria-hidden="true" />
       <span>{label}</span>
     </span>
   );
