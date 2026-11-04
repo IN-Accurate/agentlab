@@ -8,6 +8,7 @@ from app.models import Assertion, AssertionResult, Diagnosis, TestCase
 from evaluator.diagnosis import Facts, classify, judge
 from evaluator.evaluate import run_evaluation, stream_chat
 from evaluator.llm import ModelClient, ModelError
+from evaluator.policies import suggest_policies
 from evaluator.repair import run_repair, run_verify
 
 
@@ -86,6 +87,7 @@ HANDLERS = {
     "run": run_evaluation,
     "repair": run_repair,
     "verify": run_verify,
+    "suggest_policies": suggest_policies,
 }
 
 

@@ -182,6 +182,22 @@ class ConnectionCreate(Credentials):
     agent: AgentConfig
 
 
+class PolicySuggestionCreate(Credentials):
+    count: int = Field(default=5, ge=1, le=8)
+
+
+class PolicySuggestion(BaseModel):
+    title: str
+    policy: str
+    test: str
+    input: str
+
+
+class PolicySuggestionResponse(BaseModel):
+    name: str
+    policies: list[PolicySuggestion]
+
+
 class ChunkCreate(RequestModel):
     rank: int = Field(ge=1)
     text: str = Field(max_length=32000)

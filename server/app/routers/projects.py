@@ -17,7 +17,15 @@ from app.models import (
     Diagnosis,
     Repair,
 )
-from app.schemas import ProjectCreate, VersionCreate, Page, ConnectionCreate, entity
+from app.schemas import (
+    ConnectionCreate,
+    Page,
+    PolicySuggestionCreate,
+    PolicySuggestionResponse,
+    ProjectCreate,
+    VersionCreate,
+    entity,
+)
 from app.security import validate_url
 from app.services.evaluator import execute, prepare
 
@@ -188,6 +196,25 @@ async def diff(a: UUID, b: UUID, db: AsyncSession = Depends(session, scope="func
         "before": left.config,
         "after": right.config,
     }
+
+
+@router.post(
+    "/projects/{id}/policy-suggestions",
+    response_model=PolicySuggestionResponse,
+    summary="Suggest policies for an agent from its name and prompt",
+)
+async def policy_suggestions(
+    id: UUID,
+    data: PolicySuggestionCreate,
+    request: Request,
+    db: AsyncSession = Depends(session, scope="function"),
+):
+    await require(db, Project, id)
+    return await execute(
+        db,
+        request.app.state,
+        await prepare(db, request.app.state, "suggest_policies", data, project_id=id),
+    )
 
 
 @router.post(

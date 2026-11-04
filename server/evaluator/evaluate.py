@@ -22,6 +22,11 @@ from evaluator.llm import ModelClient, ModelError
 from evaluator.team import runner
 
 RUN_PREFIX = "Run test: "
+GROUNDED = (
+    "Every factual claim in the output is supported by the results in tool_calls. "
+    "It invents nothing the tools did not return and contradicts none of it."
+)
+NO_TOOL_RESULT = "Answered without using any tool result"
 CONTEXT_MARK = "\n\nAdditional context:\n"
 ERROR_PREFIX = "Error:"
 EMPTY_ANSWER = "The model returned an empty answer"
@@ -58,7 +63,7 @@ def failure_reason(result):
     return None if result.output else EMPTY_ANSWER
 
 
-async def grade(model, query, output, criterion, background=None):
+async def grade(model, query, output, criterion, background=None, tools=None):
     """A grader that cannot answer never counts as a pass."""
     data = {
         "input": query,
@@ -66,6 +71,8 @@ async def grade(model, query, output, criterion, background=None):
         "criterion": criterion,
         "context": background,
     }
+    if tools:
+        data["tool_calls"] = tools
     try:
         reply = await model.complete(
             [
@@ -95,12 +102,56 @@ async def grade_assertion(grader, query, output, assertion):
     return passed, f"{spec.get('type')} {'passed' if passed else 'failed'}"
 
 
+def tool_calls(result):
+    return [
+        {
+            key: item["payload"].get(key)
+            for key in ("name", "arguments", "result", "error")
+            if item["payload"].get(key) is not None
+        }
+        for item in result.spans
+        if item["type"] == "tool"
+    ]
+
+
+def tool_notes(expected, calls):
+    """Required and forbidden calls; any invalid call fails a test that checks tools."""
+    required = expected.get("tool_calls") or []
+    forbidden = expected.get("forbidden_tools") or []
+    if not required and not forbidden:
+        return []
+    made = [call for call in calls if "error" not in call]
+    notes = [
+        f"Tool call was invalid: {call.get('name')} ({call['error'].get('message')})"
+        for call in calls
+        if (call.get("error") or {}).get("kind") == "tool_arg"
+    ]
+    for want in required:
+        arguments = want.get("arguments") or {}
+        if not any(
+            call["name"] == want.get("name")
+            and isinstance(call.get("arguments"), dict)
+            and all(call["arguments"].get(k) == v for k, v in arguments.items())
+            for call in made
+        ):
+            detail = f" with {json.dumps(arguments)}" if arguments else ""
+            notes.append(f"Did not call {want.get('name')}{detail}")
+    notes += [
+        f"Called forbidden tool {name}"
+        for name in forbidden
+        if any(call.get("name") == name for call in calls)
+    ]
+    return notes
+
+
 async def evaluate_case(model, grader, config, case, params=None, team=None):
     query, expected = case["input"], case.get("expected") or {}
     if team:
         result = await team.run(query, params)
     else:
-        result = await run_agent(model, config, query, params)
+        # The grader plays simulated tools, so the agent never answers its own calls.
+        result = await run_agent(model, config, query, params, simulator=grader)
+    calls = tool_calls(result)
     outcome = Outcome(result)
     reason = failure_reason(result)
     notes = [reason] if reason else []
@@ -115,10 +166,26 @@ async def evaluate_case(model, grader, config, case, params=None, team=None):
         reference = expected.get("reference")
         if reference and str(reference).lower() not in result.output.lower():
             notes.append(f"Answer does not contain: {reference}")
+        notes += tool_notes(expected, calls)
+        if expected.get("grounded"):
+            # Tool access is no guarantee: agents still skip the tool or ignore it.
+            if not any("result" in call for call in calls):
+                notes.append(NO_TOOL_RESULT)
+            else:
+                grounded, why = await grade(
+                    grader, query, result.output, GROUNDED, None, calls
+                )
+                if not grounded:
+                    notes.append(f"Not grounded in tool results: {why}")
     explanation = ""
     if expected.get("behavior") and not reason:
         passed, explanation = await grade(
-            grader, query, result.output, expected["behavior"], expected.get("context")
+            grader,
+            query,
+            result.output,
+            expected["behavior"],
+            expected.get("context"),
+            calls,
         )
         if not passed:
             notes.append(explanation)

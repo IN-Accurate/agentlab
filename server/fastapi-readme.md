@@ -220,6 +220,7 @@ Context supplies session, session_factory(), credentials.metadata(id), credentia
 | verify | verification_id referencing this repair's stored verification; optional scorecard |
 | seed | items containing persisted test-case records in this project |
 | test_connection | ok boolean, optional latency_ms/model/error |
+| suggest_policies | name and policies (title, policy, test), checked by the response model; nothing is stored |
 
 Hosted vs external execution, replay support, confirmation, repair templates, holdout isolation and verification acceptance are implemented by the evaluator team. External agents commonly expose only prompt/params/tools controls; retrieval changes must not be claimed if their API does not support them.
 
@@ -229,7 +230,7 @@ OpenRouter credential example is provider=openrouter, model=REPLACE_ME, api_key=
 
 | Screen | Routes |
 | --- | --- |
-| Project setup | projects, versions, credentials, agent/test-connection |
+| Project setup | projects, versions, credentials, agent/test-connection, policy-suggestions |
 | Trace explorer | traces, spans, timeline |
 | Test editor | test-cases, assertions, split |
 | Run results | runs, results, summary, compare |
