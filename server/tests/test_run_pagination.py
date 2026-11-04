@@ -17,11 +17,23 @@ async def test_project_run_pages_include_all_versions_and_exclude_other_projects
         await db.flush()
         start = datetime.now(UTC)
         rows = [
-            Run(app_version_id=version.id, params={}, created_at=start + timedelta(seconds=index))
-            for index, version in enumerate([
-                version_a1, version_b, version_a2, version_a1,
-                version_b, version_a2, version_a1, version_a2,
-            ])
+            Run(
+                app_version_id=version.id,
+                params={},
+                created_at=start + timedelta(seconds=index),
+            )
+            for index, version in enumerate(
+                [
+                    version_a1,
+                    version_b,
+                    version_a2,
+                    version_a1,
+                    version_b,
+                    version_a2,
+                    version_a1,
+                    version_a2,
+                ]
+            )
         ]
         db.add_all(rows)
         await db.flush()
@@ -33,9 +45,14 @@ async def test_project_run_pages_include_all_versions_and_exclude_other_projects
     first_page = first.json()
     assert len(first_page["items"]) == 4
     assert first_page["next_cursor"]
-    second = await client.get("/v1/runs", params={
-        "project_id": a_id, "limit": 4, "cursor": first_page["next_cursor"],
-    })
+    second = await client.get(
+        "/v1/runs",
+        params={
+            "project_id": a_id,
+            "limit": 4,
+            "cursor": first_page["next_cursor"],
+        },
+    )
     assert second.status_code == 200, second.text
     second_page = second.json()
     assert len(second_page["items"]) == 2
@@ -44,11 +61,15 @@ async def test_project_run_pages_include_all_versions_and_exclude_other_projects
     assert len(returned) == len(set(returned))
     assert set(returned) == expected
 
-    one_version = await client.get("/v1/runs", params={"project_id": a_id, "version_id": a1_id})
+    one_version = await client.get(
+        "/v1/runs", params={"project_id": a_id, "version_id": a1_id}
+    )
     assert one_version.status_code == 200, one_version.text
     assert len(one_version.json()["items"]) == 3
     assert all(row["app_version_id"] == a1_id for row in one_version.json()["items"])
-    mismatched = await client.get("/v1/runs", params={"project_id": a_id, "version_id": b_id})
+    mismatched = await client.get(
+        "/v1/runs", params={"project_id": a_id, "version_id": b_id}
+    )
     assert mismatched.status_code == 200, mismatched.text
     assert mismatched.json()["items"] == []
     version_only = await client.get("/v1/runs", params={"version_id": b_id})
