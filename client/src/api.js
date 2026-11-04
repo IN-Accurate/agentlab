@@ -37,7 +37,7 @@ export async function proposeFix(resultId, credentialId) {
     await api(`/v1/diagnoses/${diagnosis.id}/repairs`, { method: 'POST', body });
   } catch (error) {
     // The diagnosis is saved either way, so the review still opens.
-    return { ...diagnosis, repairError: error?.message ?? 'Could not propose a repair.' };
+    return { ...diagnosis, repairError: error?.message ?? 'Could not propose a repair.', repairErrorCode: error?.code ?? null };
   }
   return diagnosis;
 }

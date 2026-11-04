@@ -99,12 +99,27 @@ def clip(value, limit=MAX_TEXT):
     return value if len(value) <= limit else value[:limit] + "...[truncated]"
 
 
+@dataclass(frozen=True)
+class SpanTiming:
+    started_at: datetime
+    tick: float
+
+    def elapsed_ms(self):
+        return max(0, int((monotonic() - self.tick) * 1000))
+
+
+def start_span():
+    """Keep the operation's wall-clock start and a stable elapsed-time clock."""
+    return SpanTiming(datetime.now(UTC), monotonic())
+
+
 def span(kind, started=None, status="ok", payload=None, chunks=None):
+    timing = started if started is not None else start_span()
     return {
         "sdk_span_id": uuid4().hex,
         "type": kind,
-        "started_at": datetime.now(UTC),
-        "latency_ms": int((monotonic() - started) * 1000) if started else 0,
+        "started_at": timing.started_at,
+        "latency_ms": timing.elapsed_ms() if started is not None else 0,
         "status": status,
         "payload": payload or {},
         "chunks": chunks or [],
@@ -428,10 +443,11 @@ def category(spec):
 def validate(config, output):
     spans = []
     for spec in config.get("validators") or []:
+        started = start_span()
         passed = check(spec, output)
         payload = {"spec": spec, "passed": passed, "category": category(spec)}
         status = "error" if passed is False else "ok"
-        spans.append(span("validation", status=status, payload=payload))
+        spans.append(span("validation", started, status=status, payload=payload))
     return spans
 
 
@@ -442,7 +458,7 @@ async def run_agent(
     result = AgentResult()
     chunks = []
     if agent.get("type", "hosted") == "hosted":
-        started = monotonic()
+        started = start_span()
         chunks = retrieve(config, query)
         result.spans.append(
             span("retrieval", started, payload={"query": query}, chunks=chunks)
@@ -460,7 +476,7 @@ async def run_agent(
             result.status = "error"
             result.spans.append(limit_span(limit))
             return result
-        started = monotonic()
+        started = start_span()
         try:
             reply = await model.complete(messages, schemas, params)
         except ModelError as exc:
@@ -487,7 +503,7 @@ async def run_agent(
             {"role": "assistant", "content": reply.text, "tool_calls": reply.tool_calls}
         )
         for call in reply.tool_calls:
-            started = monotonic()
+            started = start_span()
             content, status, payload = run_tool(tools, call)
             if status == "execute":
                 tool = tools[payload["name"]]

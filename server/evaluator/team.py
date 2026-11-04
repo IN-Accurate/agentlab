@@ -1,7 +1,6 @@
 import json
 import re
 from dataclasses import dataclass
-from time import monotonic
 from uuid import UUID
 
 from app.errors import AppError
@@ -13,6 +12,7 @@ from evaluator.agent import (
     limit_span,
     run_agent,
     span,
+    start_span,
     validate,
 )
 from evaluator.llm import ModelClient, ModelError
@@ -163,9 +163,10 @@ class Team:
                 {**span("tool", status="error", payload=payload), "parent": parent}
             )
             return {"error": message}
-        started = monotonic()
+        started = start_span()
         node = span(
             "agent",
+            started,
             payload={
                 "role": "member",
                 "name": member.name,
@@ -183,7 +184,7 @@ class Team:
         for item in result.spans:
             item.setdefault("parent", node["sdk_span_id"])
         spans += result.spans
-        node["latency_ms"] = int((monotonic() - started) * 1000)
+        node["latency_ms"] = started.elapsed_ms()
         node["status"] = result.status
         if result.status != "ok":
             errors = [s["payload"].get("error") for s in result.spans]
@@ -195,11 +196,13 @@ class Team:
 
     async def run(self, query, params=None, history=None):
         result = AgentResult()
-        started = monotonic()
+        started = start_span()
         decision = route(self.team["router"], query)
         result.spans.append(span("router", started, payload=decision))
+        coordinator_started = start_span()
         coordinator = span(
             "agent",
+            coordinator_started,
             payload={
                 "role": "coordinator",
                 "name": "coordinator",
@@ -231,7 +234,7 @@ class Team:
                 limit = budget.charge()
                 if limit:
                     return self.fail(result, coordinator, limit_span(limit))
-                call_started = monotonic()
+                call_started = start_span()
                 try:
                     reply = await self.coordinator.complete(messages, tools, merged)
                 except ModelError as exc:
@@ -273,7 +276,7 @@ class Team:
                     )
             return self.fail(result, coordinator, limit_span("step_limit"))
         finally:
-            coordinator["latency_ms"] = int((monotonic() - started) * 1000)
+            coordinator["latency_ms"] = coordinator_started.elapsed_ms()
             coordinator["payload"].update(steps=budget.steps, tokens=budget.tokens)
 
     @staticmethod

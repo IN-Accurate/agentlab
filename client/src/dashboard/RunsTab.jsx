@@ -1,64 +1,116 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, proposeFix } from '../api.js';
 import { useFetch } from '../hooks.js';
+import { fetchCache } from '../fetchCache.js';
 import { Empty, ErrorBox, Spinner, Verdict, fmtTime, shortId } from '../ui.jsx';
+import './traceRequests.css';
 
 async function fetchRail(projectId, versionIds, versionFilter, cursor) {
-  const params = new URLSearchParams({ limit: '50' });
+  const params = new URLSearchParams({ project_id: projectId, limit: '4' });
   if (versionFilter !== 'all') params.set('version_id', versionFilter);
   if (cursor) params.set('cursor', cursor);
   const page = await api(`/v1/runs?${params}`);
-  const items = (page.items ?? []).filter(
-    (r) => versionFilter !== 'all' || versionIds.has(r.app_version_id),
-  );
+  const items = page.items ?? [];
   return { items, next: page.next_cursor ?? null };
 }
 
-function useRail(projectId, versions, versionFilter, nonce) {
-  const [items, setItems] = useState([]);
-  const [cursor, setCursor] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const versionIds = useMemo(() => new Set(versions.map((v) => v.version_id)), [versions]);
+function railState(key) {
+  const cached = fetchCache.getCached(key);
+  return {
+    key,
+    items: cached?.items ?? [],
+    cursor: cached?.next ?? null,
+    loading: cached === undefined,
+    error: null,
+    page: 1,
+    previous: [],
+    future: [],
+  };
+}
 
+export function useRail(projectId, versions, versionFilter, nonce) {
+  const versionIds = useMemo(() => new Set(versions.map((v) => v.version_id)), [versions]);
+  const key = `run-rail-${projectId}-${versionFilter}-${[...versionIds].join(',')}-${nonce}`;
+  const [state, setState] = useState(() => railState(key));
+  const generation = useRef(0);
+  const currentKey = useRef(key);
+  const paging = useRef(false);
+  currentKey.current = key;
+
+  // The key includes every query input; equivalent version lists keep paging intact.
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetchRail(projectId, versionIds, versionFilter, null).then(
+    const id = ++generation.current;
+    paging.current = false;
+    setState(railState(key));
+    fetchCache.fetchShared(key, () => fetchRail(projectId, versionIds, versionFilter, null)).then(
       ({ items, next }) => {
-        if (cancelled) return;
-        setItems(items);
-        setCursor(next);
-        setLoading(false);
+        if (id !== generation.current || currentKey.current !== key) return;
+        setState({ key, items, cursor: next, loading: false, error: null, page: 1, previous: [], future: [] });
       },
-      (e) => {
-        if (!cancelled) {
-          setError(e);
-          setLoading(false);
-        }
+      (error) => {
+        if (id !== generation.current || currentKey.current !== key) return;
+        setState((s) => s.key === key ? { ...s, error, loading: false } : s);
       },
     );
     return () => {
-      cancelled = true;
+      generation.current += 1;
     };
-  }, [projectId, versionFilter, nonce, versionIds]);
+  }, [key]);
+
+  const current = state.key === key ? state : railState(key);
 
   async function more() {
-    if (!cursor) return;
-    setLoading(true);
+    if (currentKey.current !== key || !current.cursor || current.loading || paging.current) return;
+    if (current.future.length) {
+      setState((s) => ({
+        ...s,
+        ...s.future[0],
+        page: s.page + 1,
+        previous: [...s.previous, { items: s.items, cursor: s.cursor }],
+        future: s.future.slice(1),
+        error: null,
+      }));
+      return;
+    }
+    const id = generation.current;
+    paging.current = true;
+    setState((s) => s.key === key ? { ...s, loading: true, error: null } : s);
     try {
-      const { items: next2, next } = await fetchRail(projectId, versionIds, versionFilter, cursor);
-      setItems((all) => [...all, ...next2]);
-      setCursor(next);
-    } catch (e) {
-      setError(e);
+      const { items, next } = await fetchRail(projectId, versionIds, versionFilter, current.cursor);
+      if (id !== generation.current || currentKey.current !== key) return;
+      setState((s) => s.key === key ? {
+        ...s, items, cursor: next, page: s.page + 1,
+        previous: [...s.previous, { items: s.items, cursor: s.cursor }], future: [],
+      } : s);
+    } catch (error) {
+      if (id === generation.current && currentKey.current === key)
+        setState((s) => s.key === key ? { ...s, error } : s);
     } finally {
-      setLoading(false);
+      if (id === generation.current && currentKey.current === key) {
+        paging.current = false;
+        setState((s) => s.key === key ? { ...s, loading: false } : s);
+      }
     }
   }
 
-  return { items, cursor, loading, error, more };
+  function previous() {
+    if (currentKey.current !== key || !current.previous.length || current.loading) return;
+    setState((s) => ({
+      ...s,
+      ...s.previous.at(-1),
+      page: s.page - 1,
+      previous: s.previous.slice(0, -1),
+      future: [{ items: s.items, cursor: s.cursor }, ...s.future],
+      error: null,
+    }));
+  }
+
+  const allItems = useMemo(() => [
+    ...current.previous.flatMap((page) => page.items),
+    ...current.items,
+    ...current.future.flatMap((page) => page.items),
+  ], [current.previous, current.items, current.future]);
+  return { ...current, allItems, more, previous };
 }
 
 export default function RunsTab({
@@ -79,18 +131,21 @@ export default function RunsTab({
   const [actionError, setActionError] = useState('');
 
   const numbers = useMemo(() => {
-    const ordered = [...rail.items].sort((a, b) =>
+    const ordered = [...rail.allItems].sort((a, b) =>
       String(a.created_at) < String(b.created_at) ? -1 : 1,
     );
     return Object.fromEntries(
       ordered.map((r, i) => [r.id, `R-${String(i + 1).padStart(3, '0')}`]),
     );
-  }, [rail.items]);
+  }, [rail.allItems]);
 
   useEffect(() => {
     let cancelled = false;
     Promise.allSettled(
-      rail.items.map((r) => api(`/v1/runs/${r.id}/summary`).then((s) => [r.id, s])),
+      rail.items.map((r) => fetchCache.fetchShared(
+        `run-summary-${r.id}-${dash.runsNonce ?? 0}`,
+        () => api(`/v1/runs/${r.id}/summary`),
+      ).then((s) => [r.id, s])),
     ).then((done) => {
       if (cancelled) return;
       const next = {};
@@ -100,7 +155,7 @@ export default function RunsTab({
     return () => {
       cancelled = true;
     };
-  }, [rail.items]);
+  }, [rail.items, dash.runsNonce]);
 
   const runId = dash.runId ?? rail.items[0]?.id ?? null;
   const summary = useFetch(
@@ -128,6 +183,11 @@ export default function RunsTab({
 
   const failedCount = (summary.data?.results ?? []).filter((r) => !r.passed).length;
   const passedCount = (summary.data?.results ?? []).filter((r) => r.passed).length;
+
+  function turnPage(direction) {
+    void rail[direction]();
+    patchDash({ runId: null, resultId: null });
+  }
 
   async function diagnose(resultId) {
     if (!resultId || diagnosing) return;
@@ -190,11 +250,16 @@ export default function RunsTab({
               })}
             </ul>
           )}
-          {rail.cursor ? (
-            <button type="button" className="link" onClick={rail.more} disabled={rail.loading}>
-              Load more runs
+          <nav className="request-pagination" aria-label="Run history pages">
+            <button type="button" className="btn-secondary" aria-label="Previous runs page" disabled={rail.page === 1 || rail.loading} onClick={() => turnPage('previous')}>
+              Previous
             </button>
-          ) : null}
+            <span className="request-page-number" aria-live="polite">Page {rail.page}</span>
+            <button type="button" className="btn-secondary" aria-label="Next runs page" disabled={!rail.cursor || rail.loading} onClick={() => turnPage('more')}>
+              Next
+            </button>
+          </nav>
+          {rail.loading ? <Spinner label="Loading runs…" /> : null}
         </aside>
         <div className="runs-main">
           {!runId ? (
@@ -210,7 +275,7 @@ export default function RunsTab({
                   {numbers[runId] ?? shortId(runId)} · {labels[summary.data.version_id] ?? ''}
                 </h3>
                 <CompareLink
-                  runs={rail.items}
+                  runs={rail.allItems}
                   numbers={numbers}
                   dash={dash}
                   patchDash={patchDash}

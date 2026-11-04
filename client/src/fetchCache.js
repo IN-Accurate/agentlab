@@ -26,7 +26,9 @@ export function createFetchCache(ttlMs = DEFAULT_TTL_MS) {
     }
     const running = inflight.get(key);
     if (running) return running;
-    const promise = fetcher().then(
+    // Normalize synchronous fetchers/throws and register the in-flight promise
+    // before invoking the fetcher so concurrent readers always share it.
+    const promise = Promise.resolve().then(fetcher).then(
       (data) => {
         inflight.delete(key);
         if (cache.size >= MAX_ENTRIES) cache.delete(cache.keys().next().value);

@@ -598,7 +598,7 @@ summary:focus-visible {
   margin-bottom: 4px;
 }
 
-.field input,
+.field input:not([type='checkbox']):not([type='radio']),
 .field select,
 .field textarea,
 .composer textarea,
@@ -614,7 +614,7 @@ summary:focus-visible {
   color: var(--text);
 }
 
-.field input:disabled,
+.field input:not([type='checkbox']):not([type='radio']):disabled,
 .field select:disabled {
   background: var(--sidebar);
 }
@@ -666,6 +666,19 @@ select.project-select {
 }
 
 /* Shared states */
+
+.loading-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  margin: 8px 0;
+}
+
+button .loading-status { margin: 0; color: inherit; }
+.spinner-icon { width: 16px; height: 16px; flex-shrink: 0; animation: spinner-turn 900ms linear infinite; }
+@keyframes spinner-turn { to { transform: rotate(360deg); } }
 
 .empty {
   padding: 32px 0;
@@ -752,11 +765,17 @@ select.project-select {
 .chat {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 60px);
+  height: calc(100dvh - 60px);
+  min-height: 0;
 }
 
 .chat-body {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  padding: 8px 4px 24px;
 }
 
 .chat-narrow {
@@ -885,6 +904,33 @@ select.project-select {
   margin-bottom: 0;
 }
 
+.field label.default-agent-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 0;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.default-agent-toggle input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.default-agent-toggle:has(input:disabled),
+.default-agent-toggle input:disabled {
+  cursor: default;
+}
+
 .connect-form .connect-actions .btn-primary {
   flex: 1 1 auto;
   background: var(--accent);
@@ -894,11 +940,13 @@ select.project-select {
   background: var(--sidebar);
   border-radius: var(--radius-card);
   padding: 12px 16px;
-  margin: 16px 0;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .assistant-block {
-  margin: 16px 0;
+  margin: 0;
 }
 
 .assistant-label {
@@ -942,6 +990,18 @@ select.project-select {
 .composer-wrap {
   width: 100%;
   padding: 12px 0 8px;
+  flex-shrink: 0;
+}
+
+.composer-connection-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 10px;
 }
 
 .composer {
@@ -951,9 +1011,14 @@ select.project-select {
 }
 
 .composer textarea {
+  display: block;
   border: none;
   padding: 0;
   min-height: 24px;
+  max-height: min(160px, 25dvh);
+  resize: none;
+  overflow-y: hidden;
+  line-height: 24px;
 }
 
 .composer textarea:focus {
@@ -1558,6 +1623,7 @@ section pre {
 }
 
 @media (max-width: 760px) {
+  .chat { height: calc(100dvh - 92px); }
   .menu-btn {
     display: block;
   }
@@ -1585,6 +1651,11 @@ section pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .spinner-icon,
+  .message-row,
+  .thinking-dots i,
+  .thinking-label,
+  .agent-avatar.is-thinking::after { animation: none; }
   .connection-dot {
     animation: none;
   }

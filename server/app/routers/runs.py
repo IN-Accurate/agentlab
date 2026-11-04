@@ -63,14 +63,24 @@ async def run(
 @router.get("/runs", response_model=Page, summary="List evaluation runs")
 async def runs(
     version_id: UUID | None = None,
+    project_id: UUID | None = None,
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
     db: AsyncSession = Depends(session, scope="function"),
 ):
+    filters = []
+    if project_id:
+        filters.append(
+            Run.app_version_id.in_(
+                select(AppVersion.id).where(AppVersion.project_id == project_id)
+            )
+        )
+    if version_id:
+        filters.append(Run.app_version_id == version_id)
     return await page(
         db,
         Run,
-        (Run.app_version_id == version_id,) if version_id else (),
+        tuple(filters),
         limit,
         cursor,
     )

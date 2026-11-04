@@ -67,8 +67,7 @@ async function loadChain(projectId, review) {
     const verification = await api(`/v1/verifications/${review.verificationId}`);
     picked = repairs.find((r) => r.repair.id === verification.repair_id) ?? null;
     if (picked) {
-      const scorecard = await api(`/v1/verifications/${verification.id}`);
-      return { repairs, chain: await finishChain(picked, verification, scorecard) };
+      return { repairs, chain: await finishChain(picked, verification, verification) };
     }
   }
   // A requested diagnosis with no repair must not fall back to an unrelated one.

@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
+import { LoaderCircle } from 'lucide-react';
 
 export function Spinner({ label = 'Loading…' }) {
   return (
-    <p className="muted" role="status">
-      {label}
-    </p>
+    <span className="loading-status" role="status" aria-live="polite">
+      <LoaderCircle className="spinner-icon" size={16} aria-hidden="true" />
+      <span>{label}</span>
+    </span>
   );
 }
 
@@ -69,7 +71,7 @@ export function Field({ label, error, children }) {
 const FOCUSABLE =
   'a[href], area[href], button, input, select, textarea, summary, audio[controls], video[controls], iframe, [contenteditable], [tabindex]';
 
-export function Modal({ title, onClose, children }) {
+export function Modal({ title, onClose, children, className = '' }) {
   const dialog = useRef(null);
 
   useEffect(() => {
@@ -113,7 +115,7 @@ export function Modal({ title, onClose, children }) {
       <div
         ref={dialog}
         tabIndex={-1}
-        className="modal"
+        className={`modal ${className}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

@@ -141,6 +141,7 @@ async def create(
 
 @router.get("", response_model=Page, summary="List traces by version and status")
 async def listing(
+    project_id: UUID | None = None,
     version_id: UUID | None = None,
     status: str | None = None,
     limit: int = Query(50, ge=1, le=200),
@@ -148,6 +149,12 @@ async def listing(
     db: AsyncSession = Depends(session, scope="function"),
 ):
     filters = []
+    if project_id:
+        filters.append(
+            Trace.app_version_id.in_(
+                select(AppVersion.id).where(AppVersion.project_id == project_id)
+            )
+        )
     if version_id:
         filters.append(Trace.app_version_id == version_id)
     if status:
