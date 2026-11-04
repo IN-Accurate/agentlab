@@ -349,28 +349,60 @@ async def draft_input(model, behavior, background):
 
 
 async def find_test_case(db, writer, project_id, behavior, background):
-    expected = {"behavior": behavior}
-    if background:
-        expected["context"] = background
-    row = await db.scalar(
-        select(TestCase)
-        .where(
-            TestCase.project_id == project_id,
-            TestCase.archived_at.is_(None),
-            TestCase.expected == expected,
+    target = behavior.strip()
+    row = None
+    # 1. First check if behavior matches an existing test case ID (UUID or short ID prefix)
+    try:
+        parsed_id = UUID(target)
+        row = await db.scalar(
+            select(TestCase)
+            .where(
+                TestCase.project_id == project_id,
+                TestCase.id == parsed_id,
+                TestCase.archived_at.is_(None),
+            )
+            .limit(1)
         )
-        .order_by(TestCase.created_at)
-        .limit(1)
-    )
+    except (ValueError, AttributeError):
+        if len(target) >= 6 and all(c in "0123456789abcdefABCDEF-" for c in target):
+            candidates = list(
+                await db.scalars(
+                    select(TestCase).where(
+                        TestCase.project_id == project_id,
+                        TestCase.archived_at.is_(None),
+                    )
+                )
+            )
+            for c in candidates:
+                if str(c.id).startswith(target.lower()):
+                    row = c
+                    break
+
+    # 2. If not found by test ID, check by expected behavior dictionary
     if row is None:
-        row = TestCase(
-            project_id=project_id,
-            origin="user",
-            input=await draft_input(writer, behavior, background),
-            expected=expected,
+        expected = {"behavior": behavior}
+        if background:
+            expected["context"] = background
+        row = await db.scalar(
+            select(TestCase)
+            .where(
+                TestCase.project_id == project_id,
+                TestCase.archived_at.is_(None),
+                TestCase.expected == expected,
+            )
+            .order_by(TestCase.created_at)
+            .limit(1)
         )
-        db.add(row)
-        await db.flush()
+        if row is None:
+            row = TestCase(
+                project_id=project_id,
+                origin="user",
+                input=await draft_input(writer, behavior, background),
+                expected=expected,
+            )
+            db.add(row)
+            await db.flush()
+
     assertions = await db.scalars(
         select(Assertion)
         .where(Assertion.test_case_id == row.id, Assertion.archived_at.is_(None))
@@ -380,7 +412,8 @@ async def find_test_case(db, writer, project_id, behavior, background):
 
 
 async def run_chat_test(db, context, options, version, model, message):
-    behavior, _, background = message[len(RUN_PREFIX) :].partition(CONTEXT_MARK)
+    prefix_len = len(RUN_PREFIX)
+    behavior, _, background = message[prefix_len:].partition(CONTEXT_MARK)
     grader = ModelClient.from_context(
         context,
         options.get("judge_credential_id") or options["credential_id"],
@@ -395,9 +428,12 @@ async def run_chat_test(db, context, options, version, model, message):
     db.add(run)
     await db.flush()
     result_id, trace_id = await save_result(db, version.id, run.id, case, outcome)
+    expected_display = (
+        case.get("expected", {}).get("behavior") or case.get("input") or behavior
+    )
     return {
         "verdict": "pass" if outcome.passed else "fail",
-        "expected": behavior,
+        "expected": expected_display,
         "actual": outcome.result.output or "—",
         "explanation": outcome.explanation,
         "run_id": str(run.id),
@@ -415,7 +451,7 @@ async def stream_chat(payload, context):
     model = ModelClient.from_context(
         context, options["credential_id"], config.get("agent")
     )
-    if message.startswith(RUN_PREFIX):
+    if message.lower().startswith(RUN_PREFIX.lower()):
         yield {"event": "step.started", "data": {"step": "Running test…"}}
         card = await run_chat_test(db, context, options, version, model, message)
         yield {"event": "tool.result", "data": {"type": "run_summary", "data": card}}

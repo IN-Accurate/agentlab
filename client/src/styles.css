@@ -645,6 +645,81 @@
     padding: 6px 0;
   }
 
+  .project-select-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .project-del-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    border-radius: var(--radius);
+    padding: 4px 6px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .project-del-trigger:hover {
+    color: var(--failure);
+    border-color: rgba(239, 68, 68, 0.25);
+    background: var(--failure-soft);
+  }
+
+  .project-del-confirm {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 3px 8px;
+    font-size: 13px;
+  }
+
+  .project-del-text {
+    color: var(--muted);
+    font-weight: 500;
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .project-del-btn-yes {
+    background: var(--failure);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .project-del-btn-yes:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .project-del-btn-cancel {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .project-del-btn-cancel:hover {
+    color: var(--text);
+  }
+
   /* Shared states */
 
   .loading-status {
@@ -1624,5 +1699,138 @@
     .sidebar {
       transition: none;
     }
+  }
+
+  .test-id-link {
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+
+  .test-id-link:hover {
+    filter: brightness(1.2);
+  }
+
+  .rail-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 8px;
+  }
+
+  .trace-action-footer {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  .trace-diagnosis-card {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    padding: 14px 16px;
+    border-radius: var(--radius);
+    margin-top: 12px;
+  }
+
+  .test-modal-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 440px;
+    pointer-events: none;
+  }
+
+  .toast {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    border-radius: var(--radius);
+    color: var(--text);
+    animation: toast-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes toast-slide-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .toast-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .toast-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--positive-soft);
+    color: var(--positive);
+    font-weight: bold;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .toast-body p {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+
+  .toast-id {
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+    background: var(--selected);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .toast-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .toast-btn {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .toast-close {
+    padding: 4px 8px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .toast-close:hover {
+    color: var(--text);
   }
 }

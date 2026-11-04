@@ -146,6 +146,14 @@ export default function ChatView({
 
   useEffect(() => () => aborter.current?.abort(), []);
 
+  useEffect(() => {
+    if (chat.pendingRunMessage && conn && !chat.streaming && !chat.messages.length) {
+      const msg = chat.pendingRunMessage;
+      onPatch(chat.id, (c) => ({ ...c, pendingRunMessage: null }));
+      send(msg, '', { kind: 'run' });
+    }
+  }, [chat.id, chat.pendingRunMessage, conn, chat.streaming, chat.messages.length]);
+
   function patchMessages(map) {
     onPatch(chat.id, (c) => ({ ...c, messages: c.messages.map(map) }));
   }
@@ -200,7 +208,9 @@ export default function ChatView({
     aborter.current = controller;
     stickToBottom.current = true;
     setChatError('');
-    const userMsg = { id: nextId(), role: 'user', text, kind, cards: [], ...(context ? { context } : {}) };
+    const isRun = kind === 'run' || text.toLowerCase().startsWith('run test:');
+    const msgKind = isRun ? 'run' : kind;
+    const userMsg = { id: nextId(), role: 'user', text, kind: msgKind, cards: [], ...(context ? { context } : {}) };
     const shell = { id: nextId(), role: 'assistant', text: '', cards: [] };
     const nextTitle = !chat.titleSet ? (runCard?.title || titleFor(text)) : null;
     onPatch(chat.id, (c) => {
@@ -214,7 +224,7 @@ export default function ChatView({
     if (nextTitle) renameProject(nextTitle);
 
     // Chat context is kept for the whole conversation; a test run sends only its own.
-    const policy = kind === 'chat' ? chatContext(chat.messages, context) : context;
+    const policy = msgKind === 'chat' ? chatContext(chat.messages, context) : context;
     const bodyText = policy ? `${text}\n\nAdditional context:\n${policy}` : text;
     const history = [...chat.messages, userMsg]
       .filter((m) => m.text)

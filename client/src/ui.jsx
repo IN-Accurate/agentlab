@@ -172,3 +172,46 @@ export function Segmented({ label, options, value, onChange, className = '' }) {
     </div>
   );
 }
+
+export function Toast({ toast, onClose }) {
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(onClose, 10000);
+    return () => clearTimeout(timer);
+  }, [toast?.id, onClose]);
+
+  if (!toast) return null;
+  const { title, message, testId, onAction, actionLabel } = toast;
+
+  return (
+    <div className="toast" role="status" aria-live="polite">
+      <div className="toast-content">
+        <div className="toast-icon">✓</div>
+        <div className="toast-body">
+          {title ? <strong>{title}</strong> : null}
+          <p>
+            {message}
+            {testId ? <code className="toast-id"> {shortId(testId)}</code> : null}
+          </p>
+        </div>
+      </div>
+      <div className="toast-actions">
+        {onAction ? (
+          <Button type="button" variant="brand" size="sm" className="toast-btn" onClick={onAction}>
+            {actionLabel ?? 'Test in new chat →'}
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="toast-close"
+          onClick={onClose}
+          aria-label="Close notification"
+        >
+          ✕
+        </Button>
+      </div>
+    </div>
+  );
+}
