@@ -1,6 +1,6 @@
 # AgentLab
 
-> **Meta Developer Hackathon submission.** A failure-to-fix workbench for applications built on Meta's models: turn a bad answer into a reproducible test, isolate the root cause, propose a fix, and prove it doesn't break anything else.
+> **Meta Global AI Developer Hackathon submission** · Team IN-Accurate (Vishal, Deeptika, Sumit, Siddhanth). A failure-to-fix workbench for applications built on Meta's models: turn a bad answer into a reproducible test, isolate the root cause, propose a fix, and prove it doesn't break anything else.
 
 ---
 
@@ -8,15 +8,32 @@
 
 Debugging an AI agent usually means reading one bad answer and guessing. AgentLab replaces guessing with a loop: capture the failure as a trace, promote it to a deterministic test, classify the root cause with a transparent rule engine, confirm the diagnosis by controlled replay, generate a targeted repair, and accept the fix only after side-by-side verification shows zero regressions.
 
-The workbench targets agents powered by **Muse Spark** (via the Meta Model API or OpenRouter) and **Llama** (via any OpenAI-compatible endpoint), with guardrail coverage informed by PurpleLlama (Llama Guard, Prompt Guard) and the Llama Stack ecosystem.
+The workbench targets agents powered by Meta's **Muse** models (via the Meta Model API or OpenRouter) and **Llama** (via any OpenAI-compatible endpoint), with guardrail coverage informed by PurpleLlama (Llama Guard, Prompt Guard) and the Llama Stack ecosystem.
+
+**Demo video:** a 3-minute narrated walkthrough (the problem, the tech stack, how we use Meta's model, and the live app) accompanies this submission. Every answer, grade, diagnosis and repair in it was produced live by `muse-wonder-1.0`.
 
 ---
 
 ## Target Models
 
-AgentLab interfaces with target models behind a unified adapter:
-* **Muse Spark** — Accessible via the Meta Model API or OpenRouter.
+AgentLab interfaces with target models behind a unified, OpenAI-compatible adapter:
+* **Muse** — `muse-wonder-1.0` by default, and the Muse Spark models, via the Meta Model API (`https://api.meta.ai/v1`) or OpenRouter.
 * **Llama** — Accessible via any OpenAI-compatible hosting endpoint.
+
+### How AgentLab uses Meta's model
+
+Every model call in AgentLab runs on Muse. One model plays six roles:
+
+| Role | What Muse does |
+| :--- | :--- |
+| **The agent** | Answers as the agent under test, and as every coordinator and member of an agent team. |
+| **The judge** | Grades each answer against the expected behaviour, and checks it used only the business policy it was given. |
+| **The tools** | Plays tools an agent does not have yet, so tool use can be tested safely. |
+| **The test writer** | Writes realistic test questions, and suggests policies from an agent's name and prompt. |
+| **The doctor** | Diagnoses why a test failed when the rule engine cannot tell. |
+| **The fixer** | Writes the repaired system prompt that verification then checks. |
+
+A test can use a separate key or `judge_model` (for example a Muse Spark model), so an agent running on `muse-wonder-1.0` is not graded by the same model.
 
 ---
 
@@ -48,10 +65,19 @@ Trace ➔ Test ➔ Diagnose ➔ Confirm ➔ Repair ➔ Verify
 
 ## Architecture
 
-* **API Engine:** FastAPI Service
-* **Task Processing:** Redis-backed worker (`arq` / `RQ`)
-* **Storage:** PostgreSQL (leveraging `JSONB` for flexible schema execution)
-* **Web Interface:** Dashboard with trace timelines, visual diff views, and comparison scorecards.
+* **API Engine:** FastAPI service with async SQLAlchemy; replies and job progress stream over Server-Sent Events.
+* **Task Processing:** In-process async jobs (memory job store, single worker). Runs evaluate up to four test cases at once.
+* **Evaluator:** Python package for agents, agent teams with a rules router, simulated / search / connected tools, diagnosis, repair and verification.
+* **Storage:** PostgreSQL (leveraging `JSONB` for flexible schema execution), managed with Alembic migrations.
+* **Web Interface:** React 19 + Vite, styled with Tailwind CSS and shadcn/ui: chat, Agent Manager, and a dashboard with trace timelines, visual diff views, and comparison scorecards.
+
+### Highlights
+
+* **Business policy in context** — a test's policy goes into the agent's instructions, the agent is told to answer only from it, and the judge fails answers that go beyond it. In chat, attached policy is kept for the whole conversation.
+* **Policy suggestions** (API: `POST /v1/projects/{id}/policy-suggestions`) — draft policies and tests from an agent's name and prompt, then customise them for your company.
+* **Tool testing** — simulated tools, built-in Wikipedia search and connected HTTPS endpoints; tests can require or forbid tool calls, or demand answers grounded in tool results.
+* **Agent teams** — a coordinator, members on their own keys, rules routing with a fallback, and step/token limits, all visible in the trace.
+* **Find a fix** — one click from a failed test to a diagnosis, a repaired prompt, and a verification scorecard with held-out tests.
 
 ---
 
@@ -123,12 +149,13 @@ Each test builds a fresh schema from `db/agentlab_schema.sql` inside that databa
 
 ## Demo Scenario
 
-> **Issue:** A customer support bot incorrectly claims refunds are allowed within **60 days**.
+The demo video follows this flow on the real app, live on `muse-wonder-1.0`:
 
-1. **Detection:** AgentLab flags the unsupported claim during automated evaluation.
-2. **Diagnosis:** AgentLab reveals that the relevant 30-day refund policy chunk was never retrieved, confirming a **retrieval miss** via controlled replay.
-3. **Repair:** AgentLab automatically proposes an updated retrieval filter along with an updated grounding rule.
-4. **Verification:** AgentLab verifies the repair against all test suites, confirming the issue is resolved with zero regressions.
+1. **Connect:** an agent is connected in Agent Manager with the default Meta key, which stays on the server.
+2. **Policy in chat:** the company's policy is attached once; follow-up questions keep it, and a question it does not cover ("Do you deliver to Delhi?") gets "the policy only mentions Pune and Mumbai" instead of a guess.
+3. **Test:** a plain-language expectation becomes a test; Muse writes the question, the agent answers, and Muse grades it against the policy.
+4. **Fix:** a billing agent fails "ends by asking if there is anything else it can help with". Find a fix diagnoses it, adds one sentence to the system prompt as a new version, and verification accepts it: target test passes, pass rate 1/2 → 2/2, held-out test still passes.
+5. **Dashboard:** pass rate by version, the team's routing trace on a timeline, and one-click trace diagnosis.
 
 ---
 
@@ -145,7 +172,7 @@ Each test builds a fresh schema from `db/agentlab_schema.sql` inside that databa
 
 ## Built With
 
-* **Core & Infrastructure:** FastAPI, Uvicorn, Pydantic, PostgreSQL, SQLAlchemy (asyncpg), Alembic, React, Vite, shadcn/ui avatar composition (Radix UI), Lucide icons, react-markdown/remark-gfm, and Fernet-encrypted BYOK credentials.
-* **Ecosystem & Stack:** Meta's Muse Spark via the Meta Model API; Llama via OpenAI-compatible endpoints; optional OpenRouter model access. Model endpoints and IDs are configurable.
+* **Core & Infrastructure:** FastAPI, Uvicorn, Pydantic, PostgreSQL, SQLAlchemy (asyncpg), Alembic, React 19, Vite, Tailwind CSS v4, shadcn/ui (Radix UI), Lucide icons, react-markdown/remark-gfm, and Fernet-encrypted BYOK credentials.
+* **Ecosystem & Stack:** Meta's Muse (`muse-wonder-1.0` and Muse Spark) via the Meta Model API; Llama via OpenAI-compatible endpoints; optional OpenRouter model access. Model endpoints and IDs are configurable.
 * **Observability & RAG:** AgentLab's own persisted traces and spans for model calls, tools, retrieval, and validation; keyword-ranked knowledge-base retrieval with metadata filters; Wikipedia search via the MediaWiki API; Server-Sent Events for chat and job progress.
 * **Testing & Guardrails:** pytest, pytest-asyncio, Node.js's built-in test runner, Vitest, React Testing Library, JSON Schema validation (jsonschema), deterministic assertions, LLM judges, rule-based diagnosis, and baseline/candidate regression verification. PurpleLlama (Llama Guard, Prompt Guard) and Llama Stack are design references, not integrated runtime dependencies.
