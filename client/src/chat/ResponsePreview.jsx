@@ -1,8 +1,9 @@
 import { memo, useMemo, useState } from 'react';
-import { Modal } from '../ui.jsx';
+import { Modal } from '../modal.jsx';
 import Markdown from './Markdown.jsx';
 import { remarkResponsePreview, responseExcerpt } from './responsePreview.js';
 import './responsePreview.css';
+import { Button } from '@/components/ui/button';
 
 const previewPlugins = [remarkResponsePreview];
 
@@ -20,12 +21,16 @@ export default memo(function ResponsePreview({ children, className = '', title =
       </div>
       <div className="response-preview-footer">
         {truncated ? <span className="muted" aria-hidden="true">…</span> : null}
-        <button type="button" className="link response-preview-open" onClick={() => setOpen(true)}>
+        <Button type="button" variant="inline" size="inline" className="response-preview-open" onClick={() => setOpen(true)}>
           View full response
-        </button>
+        </Button>
       </div>
       {open ? (
-        <Modal title={title} className="response-modal" onClose={() => setOpen(false)}>
+        <Modal
+          title={title}
+          className="response-modal flex max-h-[min(84dvh,900px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px]"
+          onClose={() => setOpen(false)}
+        >
           <div className="response-modal-body"><Markdown>{text}</Markdown></div>
           {action ? <div className="response-modal-actions">{action}</div> : null}
         </Modal>

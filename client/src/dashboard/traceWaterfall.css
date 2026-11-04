@@ -1,38 +1,41 @@
-.trace-timeline { margin: 12px 0 20px; }
-.trace-timeline-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
-.trace-timeline-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.trace-timeline-grid { --trace-columns: minmax(200px, 1.1fr) minmax(260px, 2fr) 90px; min-width: 620px; }
-.trace-timeline-columns { display: grid; grid-template-columns: var(--trace-columns); column-gap: 12px; padding: 0 12px; border: 1px solid transparent; }
-.trace-timeline-axis { align-items: center; min-height: 40px; font-size: 11px; color: var(--muted); background: var(--sidebar); }
-.trace-tick-track { position: relative; height: 24px; }
-.trace-tick { position: absolute; top: 5px; transform: translateX(-50%); white-space: nowrap; }
-.trace-tick.first { transform: none; }
-.trace-tick.last { transform: translateX(-100%); }
-.trace-timeline-list { list-style: none; margin: 0; padding: 0; }
-.trace-span-row { width: 100%; min-height: 50px; align-items: stretch; text-align: left; font: inherit; color: var(--text); background: transparent; cursor: pointer; border-radius: 0; }
-.trace-span-row:hover { background: var(--sidebar); }
-.trace-span-row.selected { background: var(--selected); }
-.trace-span-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.trace-span-label { position: relative; display: flex; align-items: center; min-width: 0; }
-.trace-span-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 7px 0; line-height: 1.3; font-size: 13px; overflow-wrap: anywhere; }
-.trace-span-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-size: 10px; color: var(--muted); }
-.trace-tree-line { position: absolute; width: 1px; background: var(--border); }
-.trace-tree-line.ancestor { top: -1px; bottom: -1px; }
-.trace-tree-line.children { top: 50%; bottom: -1px; }
-.trace-tree-branch { position: absolute; top: -1px; bottom: -1px; width: 16px; border-left: 1px solid var(--border); }
-.trace-tree-branch.last { bottom: 50%; }
-.trace-tree-branch::after { content: ''; position: absolute; top: 50%; left: 0; width: 16px; border-top: 1px solid var(--border); }
-.trace-tree-branch.last::after { top: auto; bottom: 0; }
-.trace-tree-dot { position: absolute; top: calc(50% - 3px); width: 7px; height: 7px; border: 1px solid var(--muted); border-radius: 50%; background: var(--surface); z-index: 1; }
-.trace-span-track { position: relative; align-self: stretch; min-width: 0; overflow: hidden; background: repeating-linear-gradient(to right, var(--border) 0, var(--border) 1px, transparent 1px, transparent 25%); box-shadow: inset -1px 0 var(--border); }
-.trace-timing-bar { position: absolute; top: calc(50% - 5px); height: 10px; background: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 80%, var(--text)); border-radius: 3px; opacity: .8; }
-.trace-timing-bar.trace-type-agent, .trace-timing-bar.trace-type-router { height: 14px; top: calc(50% - 7px); opacity: .55; }
-.trace-timing-bar.estimated { border-style: dashed; background: color-mix(in srgb, var(--accent) 30%, var(--surface)); opacity: 1; }
-.trace-timing-bar.error { background: var(--failure); border-color: var(--failure); }
-.trace-duration { align-self: center; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.trace-timeline-note { margin: 8px 0 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+/* Legacy styles: layered under Tailwind utilities so shadcn classes win (see index.css). */
+@layer legacy {
+  .trace-timeline { margin: 12px 0 20px; }
+  .trace-timeline-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+  .trace-timeline-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .trace-timeline-grid { --trace-columns: minmax(200px, 1.1fr) minmax(260px, 2fr) 90px; min-width: 620px; }
+  .trace-timeline-columns { display: grid; grid-template-columns: var(--trace-columns); column-gap: 12px; padding: 0 12px; border: 1px solid transparent; }
+  .trace-timeline-axis { align-items: center; min-height: 40px; font-size: 11px; color: var(--muted); background: var(--sidebar); }
+  .trace-tick-track { position: relative; height: 24px; }
+  .trace-tick { position: absolute; top: 5px; transform: translateX(-50%); white-space: nowrap; }
+  .trace-tick.first { transform: none; }
+  .trace-tick.last { transform: translateX(-100%); }
+  .trace-timeline-list { list-style: none; margin: 0; padding: 0; }
+  .trace-span-row { width: 100%; min-height: 50px; align-items: stretch; text-align: left; font: inherit; color: var(--text); background: transparent; cursor: pointer; border-radius: 0; }
+  .trace-span-row:hover { background: var(--sidebar); }
+  .trace-span-row.selected { background: var(--selected); }
+  .trace-span-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .trace-span-label { position: relative; display: flex; align-items: center; min-width: 0; }
+  .trace-span-name { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 7px 0; line-height: 1.3; font-size: 13px; overflow-wrap: anywhere; }
+  .trace-span-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-size: 10px; color: var(--muted); }
+  .trace-tree-line { position: absolute; width: 1px; background: var(--border); }
+  .trace-tree-line.ancestor { top: -1px; bottom: -1px; }
+  .trace-tree-line.children { top: 50%; bottom: -1px; }
+  .trace-tree-branch { position: absolute; top: -1px; bottom: -1px; width: 16px; border-left: 1px solid var(--border); }
+  .trace-tree-branch.last { bottom: 50%; }
+  .trace-tree-branch::after { content: ''; position: absolute; top: 50%; left: 0; width: 16px; border-top: 1px solid var(--border); }
+  .trace-tree-branch.last::after { top: auto; bottom: 0; }
+  .trace-tree-dot { position: absolute; top: calc(50% - 3px); width: 7px; height: 7px; border: 1px solid var(--muted); border-radius: 50%; background: var(--surface); z-index: 1; }
+  .trace-span-track { position: relative; align-self: stretch; min-width: 0; overflow: hidden; background: repeating-linear-gradient(to right, var(--border) 0, var(--border) 1px, transparent 1px, transparent 25%); box-shadow: inset -1px 0 var(--border); }
+  .trace-timing-bar { position: absolute; top: calc(50% - 5px); height: 10px; background: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 80%, var(--text)); border-radius: 3px; opacity: .8; }
+  .trace-timing-bar.trace-type-agent, .trace-timing-bar.trace-type-router { height: 14px; top: calc(50% - 7px); opacity: .55; }
+  .trace-timing-bar.estimated { border-style: dashed; background: color-mix(in srgb, var(--accent) 30%, var(--surface)); opacity: 1; }
+  .trace-timing-bar.error { background: var(--failure); border-color: var(--failure); }
+  .trace-duration { align-self: center; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .trace-timeline-note { margin: 8px 0 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
 
-@media (max-width: 760px) {
-  .trace-timeline-grid { --trace-columns: 180px minmax(260px, 1fr) 80px; min-width: 580px; }
-  .trace-timeline-columns { column-gap: 8px; padding: 0 8px; }
+  @media (max-width: 760px) {
+    .trace-timeline-grid { --trace-columns: 180px minmax(260px, 1fr) 80px; min-width: 580px; }
+    .trace-timeline-columns { column-gap: 8px; padding: 0 8px; }
+  }
 }

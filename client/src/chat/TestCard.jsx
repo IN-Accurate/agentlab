@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { ArrowUpRight, X } from 'lucide-react';
 import ResponsePreview from './ResponsePreview.jsx';
 import { Spinner, Verdict } from '../ui.jsx';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 export default function TestCard({ card, onRun, onViewEvidence, onFindFix, findingFix, onRemove, disabled = false }) {
-  const [showContext, setShowContext] = useState(false);
+  const [showContext, setShowContext] = useState(Boolean(card.context));
   const [context, setContext] = useState(card.context ?? '');
 
   if (card.status === 'done' && card.result) {
@@ -37,14 +39,14 @@ export default function TestCard({ card, onRun, onViewEvidence, onFindFix, findi
         <ResponsePreview action={evidenceAction}>{r.actual}</ResponsePreview>
         {r.explanation ? <ResponsePreview className="muted" title="Full test explanation" action={evidenceAction}>{r.explanation}</ResponsePreview> : null}
         {failed && r.resultId ? (
-          <button
+          <Button
             type="button"
-            className="btn-primary"
+            variant="default"
             disabled={findingFix || disabled}
             onClick={onFindFix}
           >
             {findingFix ? <Spinner label="Starting…" /> : 'Find a fix'}
-          </button>
+          </Button>
         ) : null}
       </div>
     );
@@ -55,7 +57,7 @@ export default function TestCard({ card, onRun, onViewEvidence, onFindFix, findi
       <div className="test-card-head">
         <h3>{card.title}</h3>
         {onRemove && card.status === 'ready' ? (
-          <button type="button" className="btn-ghost remove-suggestion" onClick={onRemove} disabled={disabled} aria-label={`Remove ${card.title}`} title="Remove suggestion"><X size={16} aria-hidden="true" /></button>
+          <Button type="button" variant="ghost" size="icon-sm" className="remove-suggestion" onClick={onRemove} disabled={disabled} aria-label={`Remove ${card.title}`} title="Remove suggestion"><X size={16} aria-hidden="true" /></Button>
         ) : null}
       </div>
       <p className="muted">Expected: {card.expected}</p>
@@ -64,7 +66,7 @@ export default function TestCard({ card, onRun, onViewEvidence, onFindFix, findi
       ) : (
         <>
           {showContext ? (
-            <textarea
+            <Textarea
               value={context}
               rows={3}
               placeholder="Paste policy or extra context…"
@@ -73,14 +75,14 @@ export default function TestCard({ card, onRun, onViewEvidence, onFindFix, findi
               onChange={(e) => setContext(e.target.value)}
             />
           ) : (
-            <button type="button" className="link" disabled={disabled} onClick={() => setShowContext(true)}>
+            <Button type="button" variant="inline" size="inline" disabled={disabled} onClick={() => setShowContext(true)}>
               + Add policy or context
-            </button>
+            </Button>
           )}
           <div>
-            <button type="button" className="btn-primary" disabled={disabled} onClick={() => onRun(card.id, context)}>
+            <Button type="button" variant="default" disabled={disabled} onClick={() => onRun(card.id, context)}>
               Run test
-            </button>
+            </Button>
           </div>
         </>
       )}

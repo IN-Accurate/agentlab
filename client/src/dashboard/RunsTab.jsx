@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, proposeFix } from '../api.js';
 import { useFetch } from '../hooks.js';
 import { fetchCache } from '../fetchCache.js';
-import { Empty, ErrorBox, Spinner, Verdict, fmtTime, shortId } from '../ui.jsx';
+import { Empty, ErrorBox, Segmented, Spinner, Verdict, fmtTime, shortId } from '../ui.jsx';
 import './traceRequests.css';
+import { Button } from '@/components/ui/button';
+import { NativeSelect } from '@/components/ui/native-select';
 
 async function fetchRail(projectId, versionIds, versionFilter, cursor) {
   const params = new URLSearchParams({ project_id: projectId, limit: '4' });
@@ -210,7 +212,7 @@ export default function RunsTab({
       <div className="runs-grid">
         <aside className="rail" aria-label="Run history">
           <h3>Run history</h3>
-          <select
+          <NativeSelect wrapperClassName="w-full"
             aria-label="Filter by version"
             value={versionFilter}
             onChange={(e) => patchDash({ runVersion: e.target.value, runId: null, resultId: null })}
@@ -221,7 +223,7 @@ export default function RunsTab({
                 {v.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
           {rail.error ? <ErrorBox error={rail.error} /> : null}
           {rail.items.length === 0 && !rail.loading ? (
             <p className="muted">No runs yet.</p>
@@ -251,13 +253,13 @@ export default function RunsTab({
             </ul>
           )}
           <nav className="request-pagination" aria-label="Run history pages">
-            <button type="button" className="btn-secondary" aria-label="Previous runs page" disabled={rail.page === 1 || rail.loading} onClick={() => turnPage('previous')}>
+            <Button type="button" variant="outline" aria-label="Previous runs page" disabled={rail.page === 1 || rail.loading} onClick={() => turnPage('previous')}>
               Previous
-            </button>
+            </Button>
             <span className="request-page-number" aria-live="polite">Page {rail.page}</span>
-            <button type="button" className="btn-secondary" aria-label="Next runs page" disabled={!rail.cursor || rail.loading} onClick={() => turnPage('more')}>
+            <Button type="button" variant="outline" aria-label="Next runs page" disabled={!rail.cursor || rail.loading} onClick={() => turnPage('more')}>
               Next
-            </button>
+            </Button>
           </nav>
           {rail.loading ? <Spinner label="Loading runs…" /> : null}
         </aside>
@@ -287,24 +289,21 @@ export default function RunsTab({
                 {summary.data.holdout.passed}/{summary.data.holdout.total}
               </p>
               <CompareView dash={dash} />
-              <div className="filter-bar">
-                <div role="group" aria-label="Result filter">
-                  {[
+              <div className="filter-bar flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted px-2 py-2">
+                <Segmented
+                  label="Result filter"
+                  className="bg-transparent"
+                  value={dash.resultFilter ?? 'all'}
+                  onChange={(key) => patchDash({ resultFilter: key })}
+                  options={[
                     ['all', 'All results'],
                     ['failed', `Failed (${failedCount})`],
                     ['passed', `Passed (${passedCount})`],
-                  ].map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={(dash.resultFilter ?? 'all') === key ? 'active' : ''}
-                      onClick={() => patchDash({ resultFilter: key })}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <select
+                  ]}
+                />
+                <NativeSelect
+                  size="sm"
+                  className="bg-background"
                   aria-label="Filter by split"
                   value={dash.splitFilter ?? 'all'}
                   onChange={(e) => patchDash({ splitFilter: e.target.value })}
@@ -312,7 +311,7 @@ export default function RunsTab({
                   <option value="all">All splits</option>
                   <option value="dev">Dev</option>
                   <option value="holdout">Holdout</option>
-                </select>
+                </NativeSelect>
               </div>
               <div className="scroll-x">
                 <table className="results-table">
@@ -341,13 +340,13 @@ export default function RunsTab({
                           <Verdict value={r.passed} />
                         </td>
                         <td>
-                          <button
+                          <Button
                             type="button"
-                            className="link"
+                            variant="inline" size="inline"
                             onClick={() => patchDash({ resultId: r.id })}
                           >
                             Inspect →
-                          </button>
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -382,13 +381,13 @@ function CompareLink({ runs, numbers, dash, patchDash }) {
   const [open, setOpen] = useState(false);
   if (!open)
     return (
-      <button type="button" className="link" onClick={() => setOpen(true)}>
+      <Button type="button" variant="inline" size="inline" onClick={() => setOpen(true)}>
         Compare runs →
-      </button>
+      </Button>
     );
   return (
     <span className="compare-pick">
-      <select
+      <NativeSelect wrapperClassName="w-full"
         aria-label="Baseline run"
         value={dash.compareA ?? ''}
         onChange={(e) => patchDash({ compareA: e.target.value || null })}
@@ -399,8 +398,8 @@ function CompareLink({ runs, numbers, dash, patchDash }) {
             {numbers[r.id] ?? shortId(r.id)}
           </option>
         ))}
-      </select>
-      <select
+      </NativeSelect>
+      <NativeSelect wrapperClassName="w-full"
         aria-label="Candidate run"
         value={dash.compareB ?? ''}
         onChange={(e) => patchDash({ compareB: e.target.value || null })}
@@ -411,7 +410,7 @@ function CompareLink({ runs, numbers, dash, patchDash }) {
             {numbers[r.id] ?? shortId(r.id)}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     </span>
   );
 }
@@ -468,13 +467,13 @@ function Evidence({ resultId, caseMap, onOpenTrace, onDiagnose, diagnosing, onCo
       <div className="section-head">
         <h3>Result evidence</h3>
         {detail.data.trace_id ? (
-          <button
+          <Button
             type="button"
-            className="link"
+            variant="inline" size="inline"
             onClick={() => onOpenTrace(detail.data.trace_id, detail.data.passed)}
           >
             Trace tr_{shortId(detail.data.trace_id)} →
-          </button>
+          </Button>
         ) : null}
       </div>
       <div className="evidence-io">
@@ -510,13 +509,13 @@ function Evidence({ resultId, caseMap, onOpenTrace, onDiagnose, diagnosing, onCo
       </ul>
       <div className="evidence-actions">
         {!detail.data.passed ? (
-          <button type="button" className="btn-primary" disabled={diagnosing} onClick={onDiagnose}>
+          <Button type="button" variant="default" disabled={diagnosing} onClick={onDiagnose}>
             {diagnosing ? 'Starting…' : 'Diagnose failure'}
-          </button>
+          </Button>
         ) : null}
-        <button type="button" className="link" onClick={onContinueInChat}>
+        <Button type="button" variant="inline" size="inline" onClick={onContinueInChat}>
           Continue in chat →
-        </button>
+        </Button>
       </div>
     </section>
   );

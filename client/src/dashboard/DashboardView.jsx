@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, pollJob } from '../api.js';
 import { useFetch } from '../hooks.js';
-import { Empty, ErrorBox, Field, Modal, Spinner } from '../ui.jsx';
+import { PROJECT_RESET, fetchOwnProjects, ownProjectIds, selectedProject } from './projectScope.js';
+import { Empty, ErrorBox, Field, Spinner } from '../ui.jsx';
+import { Modal } from '../modal.jsx';
 import HuggingFaceDialog from './HuggingFaceDialog.jsx';
 import OverviewTab from './OverviewTab.jsx';
 import RunsTab from './RunsTab.jsx';
 import TracesTab from './TracesTab.jsx';
 import ImprovementsTab from './ImprovementsTab.jsx';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 
 const TABS = [
   ['overview', 'Overview'],
@@ -110,18 +115,18 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
         </div>
         <Field label="Version">
           {(id) => (
-            <select id={id} value={versionId} onChange={(e) => setVersionId(e.target.value)} disabled={pending}>
+            <NativeSelect wrapperClassName="w-full" id={id} value={versionId} onChange={(e) => setVersionId(e.target.value)} disabled={pending}>
               {versions.map((v) => (
                 <option key={v.version_id} value={v.version_id}>
                   {v.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           )}
         </Field>
         <Field label="Credential ID">
           {(id) => (
-            <input
+            <Input
               id={id}
               value={credential}
               placeholder="Credential from your connected chat"
@@ -132,16 +137,16 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
         </Field>
         <Field label="Split">
           {(id) => (
-            <select id={id} value={split} onChange={setValue('split')} disabled={pending}>
+            <NativeSelect wrapperClassName="w-full" id={id} value={split} onChange={setValue('split')} disabled={pending}>
               <option value="">All tests</option>
               <option value="dev">Dev</option>
               <option value="holdout">Holdout</option>
-            </select>
+            </NativeSelect>
           )}
         </Field>
         <Field label="Temperature">
           {(id) => (
-            <input
+            <Input
               id={id}
               type="number"
               min="0"
@@ -155,7 +160,7 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
         </Field>
         <Field label="Max tokens">
           {(id) => (
-            <input
+            <Input
               id={id}
               type="number"
               min="1"
@@ -169,7 +174,7 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
         </Field>
         <Field label="Seed">
           {(id) => (
-            <input
+            <Input
               id={id}
               type="number"
               step="1"
@@ -189,12 +194,12 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
           <Spinner label={progress === 1 ? 'Finishing…' : 'Running evaluation…'} />
         ) : null}
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose} disabled={pending}>
+          <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
             Cancel
-          </button>
-          <button type="submit" className="btn-primary" disabled={pending}>
+          </Button>
+          <Button type="submit" variant="default" disabled={pending}>
             {pending ? 'Running…' : 'Start run'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -204,6 +209,7 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
 export default function DashboardView({
   dash,
   patchDash,
+  agents,
   chatCredentialId,
   onContinueInChat,
   onOpenAgentManager,
@@ -214,15 +220,19 @@ export default function DashboardView({
   const [importing, setImporting] = useState(false);
   const [pendingDeleteProject, setPendingDeleteProject] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
-  const projects = useFetch('projects', () => api('/v1/projects?limit=100'));
+  const ids = useMemo(() => ownProjectIds(agents), [agents]);
+  const projects = useFetch(`own-projects-${ids.join(',')}`, () => fetchOwnProjects(api, ids));
+  const mine = projects.data ?? [];
+  const project = selectedProject(mine, dash.projectId);
 
   useEffect(() => {
-    if (!dash.projectId && projects.data?.items?.length)
-      patchDash({ projectId: projects.data.items[0].id });
-  }, [projects.data, dash.projectId, patchDash]);
+    // Keep the data and the picker on the same project: a remembered project that is
+    // no longer one of the user's agents falls back to their first agent.
+    if (project && project.id !== dash.projectId) patchDash({ projectId: project.id, ...PROJECT_RESET });
+  }, [project, dash.projectId, patchDash]);
 
   const board = useFetch(
-    dash.projectId ? `dashboard-${dash.projectId}` : null,
+    project && dash.projectId === project.id ? `dashboard-${dash.projectId}` : null,
     () => api(`/v1/projects/${dash.projectId}/dashboard`),
   );
 
@@ -237,40 +247,27 @@ export default function DashboardView({
 
   if (projects.loading) return <Spinner />;
   if (projects.error) return <ErrorBox error={projects.error} onRetry={projects.reload} />;
-  if (!projects.data?.items?.length)
+  if (!mine.length)
     return (
       <div className="chat-narrow">
         <Empty
-          title="No projects yet"
-          hint="Connect an agent in a chat to create your first project."
+          title="No agents yet"
+          hint="The dashboard shows the agents you connect in Agent Manager."
         />
-        <button type="button" className="btn-secondary btn-accent" onClick={onOpenAgentManager}>
+        <Button type="button" variant="brand" onClick={onOpenAgentManager}>
           Open Agent Manager
-        </button>
+        </Button>
       </div>
     );
-  if (!dash.projectId) return <Spinner />;
-
-  const project = projects.data.items.find((p) => p.id === dash.projectId) ?? projects.data.items[0];
+  if (dash.projectId !== project.id) return <Spinner />;
 
   async function deleteCurrentProject() {
     if (!project?.id || deletingProject) return;
     setDeletingProject(true);
     try {
       await api(`/v1/projects/${project.id}`, { method: 'DELETE' });
-      const remaining = projects.data.items.filter((p) => p.id !== project.id);
-      patchDash({
-        projectId: remaining[0]?.id ?? null,
-        runId: null,
-        resultId: null,
-        traceId: null,
-        review: null,
-        spanId: null,
-        runVersion: 'all',
-        traceVersion: 'all',
-        compareA: null,
-        compareB: null,
-      });
+      const remaining = mine.filter((p) => p.id !== project.id);
+      patchDash({ projectId: remaining[0]?.id ?? null, ...PROJECT_RESET });
       projects.reload();
       if (showToast) {
         showToast({ message: `Project "${project.name}" deleted` });
@@ -293,25 +290,16 @@ export default function DashboardView({
             className="project-select"
             aria-label="Project"
             value={project.id}
+            // Switching mid-delete would let the deletion's fallback override the new choice.
+            disabled={deletingProject}
             onChange={(e) => {
               setPendingDeleteProject(false);
-              patchDash({
-                projectId: e.target.value,
-                runId: null,
-                resultId: null,
-                traceId: null,
-                review: null,
-                spanId: null,
-                runVersion: 'all',
-                traceVersion: 'all',
-                compareA: null,
-                compareB: null,
-              });
+              patchDash({ projectId: e.target.value, ...PROJECT_RESET });
             }}
           >
-            {projects.data.items.map((p) => (
+            {mine.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name}
+                {p.label}
               </option>
             ))}
           </select>
@@ -352,12 +340,12 @@ export default function DashboardView({
         </div>
         {(dash.tab === 'overview' || dash.tab === 'runs') && (
           <div className="connect-actions">
-            <button type="button" className="btn-secondary" onClick={() => setImporting(true)}>
+            <Button type="button" variant="brand-outline" onClick={() => setImporting(true)}>
               Import from Hugging Face
-            </button>
-            <button type="button" className="btn-primary btn-accent" onClick={() => setDialog(true)}>
+            </Button>
+            <Button type="button" variant="brand" onClick={() => setDialog(true)}>
               Run evaluation
-            </button>
+            </Button>
           </div>
         )}
       </header>

@@ -14,6 +14,7 @@ import {
   listAgents,
   loadAgentStore,
   removeAgent,
+  forgetAgent,
   replaceDefaultNote,
   repointChats,
   reconcileCredentialMetadata,
@@ -347,5 +348,25 @@ describe('read API', () => {
       listAgents(agents).map((a) => a.id),
       ['p2', 'p1'],
     );
+  });
+});
+
+describe('forgetAgent', () => {
+  const a = { id: 'a', projectId: 'a', isDefault: true };
+  const b = { id: 'b', projectId: 'b', isDefault: false };
+
+  it('removes a missing default agent and makes the next one default', () => {
+    const out = forgetAgent([a, b], 'a');
+    assert.equal(out.removed, true);
+    assert.deepEqual(out.agents.map((x) => [x.id, x.isDefault]), [['b', true]]);
+  });
+
+  it('removes the only agent, default or not', () => {
+    assert.deepEqual(forgetAgent([a], 'a'), { agents: [], removed: true });
+  });
+
+  it('leaves the list alone for an unknown id', () => {
+    const list = [a, b];
+    assert.deepEqual(forgetAgent(list, 'zzz'), { agents: list, removed: false });
   });
 });

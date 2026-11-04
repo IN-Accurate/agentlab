@@ -22,3 +22,20 @@ export function removeDraft(messages, cardId) {
 }
 
 export const hasUserMessage = (messages) => messages.some((message) => message.role === 'user');
+
+/**
+ * All policy or context given in this chat's own messages (not test runs), oldest
+ * first and without repeats, plus the context sent now. It goes with every chat
+ * message so the agent keeps answering from it for the whole conversation.
+ */
+export function chatContext(messages, current = '') {
+  const parts = [];
+  for (const item of [
+    ...(messages ?? []).filter((m) => m.role === 'user' && (m.kind ?? 'chat') === 'chat').map((m) => m.context),
+    current,
+  ]) {
+    const text = typeof item === 'string' ? item.trim() : '';
+    if (text && !parts.includes(text)) parts.push(text);
+  }
+  return parts.join('\n\n');
+}

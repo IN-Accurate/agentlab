@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { useFetch } from '../hooks.js';
-import { Empty, ErrorBox, Modal, Spinner, fmtPct, fmtTime, shortId } from '../ui.jsx';
+import { Empty, ErrorBox, Spinner, fmtPct, fmtTime, shortId } from '../ui.jsx';
+import { Modal } from '../modal.jsx';
 import { useTraceRequests } from './useTraceRequests.js';
 import './traceRequests.css';
 import TraceWaterfall from './TraceWaterfall.jsx';
 import { formatTraceDuration as formatDuration, spanLabel } from './traceTimeline.js';
+import { Button } from '@/components/ui/button';
+import { NativeSelect } from '@/components/ui/native-select';
 
 function flattenTree(roots) {
   const out = [];
@@ -84,32 +87,32 @@ function TestCaseModal({ testCase, onClose, onInspectInRuns, onTestInNewChat }) 
         )}
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={onClose}>
             Close
-          </button>
+          </Button>
           {onTestInNewChat ? (
-            <button
+            <Button
               type="button"
-              className="btn-primary"
+              variant="default"
               onClick={() => {
                 onClose();
                 onTestInNewChat(testCase.id);
               }}
             >
               Test in new chat →
-            </button>
+            </Button>
           ) : null}
           {onInspectInRuns ? (
-            <button
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="outline"
               onClick={() => {
                 onClose();
                 onInspectInRuns(testCase);
               }}
             >
               Inspect in Runs →
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
@@ -278,7 +281,7 @@ export default function TracesTab({
         <aside className="rail" aria-label="Requests">
           <h3>Requests</h3>
           <div className="rail-filters">
-            <select
+            <NativeSelect wrapperClassName="w-full"
               aria-label="Filter by version"
               value={versionFilter}
               onChange={(e) => patchDash({ traceVersion: e.target.value, traceId: null, spanId: null })}
@@ -289,8 +292,8 @@ export default function TracesTab({
                   {v.label}
                 </option>
               ))}
-            </select>
-            <select
+            </NativeSelect>
+            <NativeSelect wrapperClassName="w-full"
               aria-label="Filter by execution"
               value={statusFilter}
               onChange={(e) => patchDash({ traceStatus: e.target.value, traceId: null, spanId: null })}
@@ -298,7 +301,7 @@ export default function TracesTab({
               <option value="all">Execution: all</option>
               <option value="ok">Execution: ok</option>
               <option value="error">Execution: error</option>
-            </select>
+            </NativeSelect>
           </div>
           {list.loading ? (
             <Spinner />
@@ -330,42 +333,42 @@ export default function TracesTab({
             </ul>
           )}
           <nav className="request-pagination" aria-label="Request pages">
-            <button
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="outline"
               aria-label="Previous requests page"
               disabled={!list.hasPrevious || list.loading}
               onClick={() => turnPage('previous')}
             >
               Previous
-            </button>
+            </Button>
             <span className="request-page-number" aria-live="polite">Page {list.page}</span>
-            <button
+            <Button
               type="button"
-              className="btn-secondary"
+              variant="outline"
               aria-label="Next requests page"
               disabled={!list.hasNext || list.loading || Boolean(list.error)}
               onClick={() => turnPage('next')}
             >
               Next
-            </button>
+            </Button>
           </nav>
           {traceId ? (
             <div className="rail-actions">
-              <button type="button" className="link" onClick={createTest} disabled={!!working}>
+              <Button type="button" variant="inline" size="inline" onClick={createTest} disabled={!!working}>
                 {working === 'test' ? 'Creating test…' : 'Create test from trace →'}
-              </button>
+              </Button>
               {activeCase ? (
                 <p className="muted" style={{ margin: '4px 0 0 0', fontSize: '0.85rem' }}>
                   Created test{' '}
-                  <button
+                  <Button
                     type="button"
-                    className="link test-id-link"
+                    variant="inline" size="inline" className="test-id-link"
                     onClick={() => setViewingCase(activeCase)}
                     title="Click to view test details"
                   >
                     {shortId(activeCase.id)}
-                  </button>
+                  </Button>
                   .
                 </p>
               ) : null}
@@ -438,21 +441,21 @@ export default function TracesTab({
               ) : null}
               <div className="trace-action-footer">
                 <p>
-                  <button type="button" className="link" onClick={diagnose} disabled={!!working}>
+                  <Button type="button" variant="inline" size="inline" onClick={diagnose} disabled={!!working}>
                     {working === 'diagnose' ? 'Diagnosing trace…' : 'Diagnose trace →'}
-                  </button>
+                  </Button>
                 </p>
                 {activeCase ? (
                   <p className="muted">
                     Created test{' '}
-                    <button
+                    <Button
                       type="button"
-                      className="link test-id-link"
+                      variant="inline" size="inline" className="test-id-link"
                       onClick={() => setViewingCase(activeCase)}
                       title="Click to view test details"
                     >
                       {shortId(activeCase.id)}
-                    </button>
+                    </Button>
                     .
                   </p>
                 ) : notice ? (
@@ -474,13 +477,13 @@ export default function TracesTab({
                         {existingDiagnosis.evidence.rationale}
                       </p>
                     ) : null}
-                    <button
+                    <Button
                       type="button"
-                      className="link"
+                      variant="inline" size="inline"
                       onClick={() => onOpenReview({ diagnosisId: existingDiagnosis.id })}
                     >
                       View diagnosis in Improvements →
-                    </button>
+                    </Button>
                   </div>
                 ) : null}
               </div>

@@ -1,6 +1,10 @@
 import { useRef, useState } from 'react';
 import { api } from '../api.js';
-import { Field, Modal, Spinner } from '../ui.jsx';
+import { Field, Spinner } from '../ui.jsx';
+import { Modal } from '../modal.jsx';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 
 const INPUT_NAMES = ['question', 'input', 'prompt', 'query', 'instruction', 'text'];
 const REPLY_NAMES = ['answer', 'output', 'response', 'completion', 'reply', 'target', 'label'];
@@ -105,13 +109,13 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
   const columnField = (label, value, onChange) => (
     <Field label={label}>
       {(id) => (
-        <select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={pending}>
+        <NativeSelect wrapperClassName="w-full" id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={pending}>
           {preview.columns.map((column) => (
             <option key={column} value={column}>
               {column}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       )}
     </Field>
   );
@@ -121,7 +125,7 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
       <form onSubmit={submit}>
         <Field label="Public dataset">
           {(id) => (
-            <input
+            <Input
               id={id}
               value={dataset}
               placeholder="e.g. rag-datasets/rag-mini-wikipedia"
@@ -132,15 +136,15 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
           )}
         </Field>
         <p>
-          <button type="button" className="btn-secondary" onClick={() => load({})} disabled={pending}>
+          <Button type="button" variant="outline" onClick={() => load({})} disabled={pending}>
             {pending && !preview ? 'Loading…' : 'Load dataset'}
-          </button>
+          </Button>
         </p>
         {preview ? (
           <>
             <Field label="Subset and split">
               {(id) => (
-                <select
+                <NativeSelect wrapperClassName="w-full"
                   id={id}
                   value={`${preview.config}\n${preview.split}`}
                   onChange={(e) => {
@@ -154,7 +158,7 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
                       {o.config} / {o.split}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               )}
             </Field>
             {columnField('Input column', inputColumn, setInputColumn)}
@@ -168,23 +172,23 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
             ) : null}
             <Field label="Grading">
               {(id) => (
-                <select id={id} value={grading} onChange={(e) => setGrading(e.target.value)} disabled={pending}>
+                <NativeSelect wrapperClassName="w-full" id={id} value={grading} onChange={(e) => setGrading(e.target.value)} disabled={pending}>
                   <option value="meaning">Same meaning (graded by the model)</option>
                   <option value="contains">Must contain the exact text</option>
-                </select>
+                </NativeSelect>
               )}
             </Field>
             <Field label="Test group">
               {(id) => (
-                <select id={id} value={testSplit} onChange={(e) => setTestSplit(e.target.value)} disabled={pending}>
+                <NativeSelect wrapperClassName="w-full" id={id} value={testSplit} onChange={(e) => setTestSplit(e.target.value)} disabled={pending}>
                   <option value="dev">Dev</option>
                   <option value="holdout">Holdout</option>
-                </select>
+                </NativeSelect>
               )}
             </Field>
             <Field label={`Rows to import${preview.total ? ` (${preview.total} available)` : ''}`}>
               {(id) => (
-                <input
+                <Input
                   id={id}
                   type="number"
                   min="1"
@@ -212,12 +216,12 @@ export default function HuggingFaceDialog({ projectId, onClose }) {
           </p>
         ) : null}
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={close} disabled={pending}>
+          <Button type="button" variant="outline" onClick={close} disabled={pending}>
             {done ? 'Done' : 'Cancel'}
-          </button>
-          <button type="submit" className="btn-primary" disabled={pending || !preview}>
+          </Button>
+          <Button type="submit" variant="default" disabled={pending || !preview}>
             {pending && preview ? 'Working…' : 'Import tests'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

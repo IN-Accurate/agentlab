@@ -74,7 +74,9 @@ describe('saved agent and chat state', () => {
 
     const message = await screen.findByRole('textbox', { name: 'Message' }, { timeout: 5000 });
     expect(message.disabled).toBe(false);
-    expect(screen.getByRole('combobox', { name: 'Chat agent' }).value).toBe(agent.id);
+    // One saved agent: the header names it as plain text, with no dropdown.
+    expect(screen.getByLabelText('Chat agent').textContent).toBe(agent.model);
+    expect(screen.queryByRole('combobox', { name: 'Chat agent' })).toBeNull();
     expect(screen.getByRole('heading', { name: 'What should we test?' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Connect an agent to get started' })).toBeNull();
     expect(api).not.toHaveBeenCalled();
@@ -133,9 +135,44 @@ describe('saved agent and chat state', () => {
     expect(screen.getByRole('heading', { name: 'New chat' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'What should we test?' })).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Message' }).disabled).toBe(false);
-    expect(screen.getByRole('combobox', { name: 'Chat agent' }).value).toBe(agent.id);
+    expect(screen.getByLabelText('Chat agent').textContent).toBe(agent.model);
     expect(screen.queryByText('Previous message')).toBeNull();
     expect(api).not.toHaveBeenCalled();
     expect(streamChat).not.toHaveBeenCalled();
+  });
+});
+
+describe('find a fix', () => {
+  it.each([
+    ['the chat agent’s project, not the dashboard’s last one', undefined, 'billing'],
+    ['the project the test ran in, even after the chat switched agent', 'other', 'other'],
+  ])('opens the review on %s', async (_label, testProject, expected) => {
+    const { proposeFix } = await import('./api.js');
+    const billing = { ...agent, id: 'billing', projectId: 'billing', name: 'Billing agent' };
+    const other = { ...agent, id: 'other', projectId: 'other', name: 'Other agent', isDefault: false };
+    const card = {
+      id: 'card', kind: 'test', status: 'done', title: 'New test', expected: 'Asks if it can help',
+      result: { verdict: 'fail', expected: 'Asks if it can help', actual: 'Done.', resultId: 'result-1', runId: 'run-1', projectId: testProject },
+    };
+    const chat = draft('billing-chat', 'Billing chat', {
+      agentId: 'billing',
+      titleSet: true,
+      messages: [
+        { id: 'u', role: 'user', text: 'Run test: Asks if it can help', kind: 'run', cards: [] },
+        { id: 'a', role: 'assistant', text: '', cards: [card] },
+      ],
+    });
+    saveChats([chat], 'billing-chat', [billing, other]);
+    localStorage.setItem('agentlab.ui.v1', JSON.stringify({ view: 'chat', activeId: 'billing-chat', dash: { projectId: testProject ? 'billing' : 'other', tab: 'overview' } }));
+    proposeFix.mockResolvedValue({ id: 'diagnosis-1' });
+    api.mockImplementation(async (path) => {
+      if (path === '/v1/projects/billing') return { id: 'billing', name: 'Billing agent' };
+      if (path === '/v1/projects/other') return { id: 'other', name: 'Other agent' };
+      return { items: [], versions: [] };
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Find a fix' }));
+    const picker = await screen.findByRole('combobox', { name: 'Project' }, { timeout: 5000 });
+    expect(picker.value).toBe(expected);
   });
 });

@@ -1,20 +1,16 @@
-.response-preview { min-width: 0; }
-.response-preview-content { max-height: 18rem; overflow: hidden; }
-.response-preview-footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.response-preview-open { font-size: 13px; }
+/* Legacy styles: layered under Tailwind utilities so shadcn classes win (see index.css). */
+@layer legacy {
+  .response-preview { min-width: 0; }
+  .response-preview-content { max-height: 18rem; overflow: hidden; }
+  .response-preview-footer { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .response-preview-open { font-size: 13px; }
 
-.modal.response-modal {
-  display: flex;
-  flex-direction: column;
-  width: min(760px, calc(100vw - 32px));
-  max-height: min(84dvh, 900px);
-  padding: 0;
-  overflow: hidden;
-}
-.response-modal .modal-head { flex: 0 0 auto; padding: 20px 24px; border-bottom: 1px solid var(--border); }
-.response-modal-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 24px; }
-.response-modal-actions { flex: 0 0 auto; padding: 14px 24px; border-top: 1px solid var(--border); }
+  /* Width, height and scrolling come from utility classes on the dialog (ResponsePreview). */
+  .response-modal [data-slot='dialog-header'] { flex: 0 0 auto; padding: 20px 24px; border-bottom: 1px solid var(--border); }
+  .response-modal-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 24px; }
+  .response-modal-actions { flex: 0 0 auto; padding: 14px 24px; border-top: 1px solid var(--border); }
 
-@media (max-width: 760px) {
-  .response-modal .modal-head, .response-modal-body, .response-modal-actions { padding: 16px; }
+  @media (max-width: 760px) {
+    .response-modal [data-slot='dialog-header'], .response-modal-body, .response-modal-actions { padding: 16px; }
+  }
 }

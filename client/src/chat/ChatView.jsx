@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getAgentForChat, isConnected } from '../agentStore.js';
 import { api, proposeFix, streamChat } from '../api.js';
 import Composer from './Composer.jsx';
 import TestCard from './TestCard.jsx';
 import ResponsePreview from './ResponsePreview.jsx';
 import ChatAvatar from './ChatAvatar.jsx';
-import { appendTurn, hasUserMessage, removeDraft } from './turns.js';
+import { appendTurn, chatContext, hasUserMessage, removeDraft } from './turns.js';
 import { isCredentialExpired } from '../credentialErrors.js';
 import './styles.css';
+import { Button } from '@/components/ui/button';
 
 let counter = 0;
 const nextId = () => `m${Date.now()}-${counter++}`;
@@ -69,6 +70,9 @@ const SUGGESTED_TASKS = [
   },
 ];
 
+// Messages rendered when a chat opens, and how many more each "Show earlier" adds.
+export const MESSAGE_PAGE = 40;
+
 function titleFor(text) {
   const words = text.split(/\s+/).filter(Boolean);
   const head = words.slice(0, 6).join(' ');
@@ -111,6 +115,12 @@ export default function ChatView({
   onOpenReview,
 }) {
   const [chatError, setChatError] = useState('');
+  // Long chats render their latest messages first; earlier ones load on request,
+  // so opening a chat never mounts (and Markdown-parses) its whole history.
+  const [shown, setShown] = useState(MESSAGE_PAGE);
+  const hiddenCount = Math.max(0, chat.messages.length - shown);
+  const visibleMessages = hiddenCount ? chat.messages.slice(hiddenCount) : chat.messages;
+  const scrollAnchor = useRef(null);
   const [findingFix, setFindingFix] = useState(null);
   const [selectedTest, setSelectedTest] = useState(null);
   // null routes ambiguous team failures to Manager; undefined uses this chat's agent.
@@ -131,6 +141,20 @@ export default function ChatView({
     const el = scrollRef.current;
     if (el && stickToBottom.current) el.scrollTop = chat.messages.length ? el.scrollHeight : 0;
   }, [chat.messages.length]);
+
+  // Earlier messages are added above the reader: keep their view where it was.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && scrollAnchor.current !== null) el.scrollTop = el.scrollHeight - scrollAnchor.current;
+    scrollAnchor.current = null;
+  }, [shown]);
+
+  function showEarlier() {
+    const el = scrollRef.current;
+    scrollAnchor.current = el ? el.scrollHeight - el.scrollTop : null;
+    stickToBottom.current = false;
+    setShown((count) => count + MESSAGE_PAGE);
+  }
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -209,7 +233,7 @@ export default function ChatView({
     setChatError('');
     const isRun = kind === 'run' || text.toLowerCase().startsWith('run test:');
     const msgKind = isRun ? 'run' : kind;
-    const userMsg = { id: nextId(), role: 'user', text, kind: msgKind, cards: [] };
+    const userMsg = { id: nextId(), role: 'user', text, kind: msgKind, cards: [], ...(context ? { context } : {}) };
     const shell = { id: nextId(), role: 'assistant', text: '', cards: [] };
     const nextTitle = !chat.titleSet ? (runCard?.title || titleFor(text)) : null;
     onPatch(chat.id, (c) => {
@@ -222,7 +246,9 @@ export default function ChatView({
     });
     if (nextTitle) renameProject(nextTitle);
 
-    const bodyText = context ? `${text}\n\nAdditional context:\n${context}` : text;
+    // Chat context is kept for the whole conversation; a test run sends only its own.
+    const policy = msgKind === 'chat' ? chatContext(chat.messages, context) : context;
+    const bodyText = policy ? `${text}\n\nAdditional context:\n${policy}` : text;
     const history = [...chat.messages, userMsg]
       .filter((m) => m.text)
       .slice(-20)
@@ -325,7 +351,8 @@ export default function ChatView({
         if (kind === 'chat' && acc.text && !acc.failed && !controller.signal.aborted && !c.messages.some((m) => m.cards.some((card) => card.kind === 'test'))) {
           out.messages = c.messages.map((m) => m.id === shell.id ? {
             ...m,
-            cards: [...m.cards, { id: nextId(), kind: 'test', status: 'ready', title: 'New test', expected: text }],
+            // The draft test keeps the chat's policy, so running it tests the same rules.
+            cards: [...m.cards, { id: nextId(), kind: 'test', status: 'ready', title: 'New test', expected: text, ...(policy ? { context: policy } : {}) }],
           } : m);
         }
         if (cardId) {
@@ -393,7 +420,8 @@ export default function ChatView({
     try {
       const diagnosis = await proposeFix(resultId, conn.credentialId);
       if (diagnosis.repairErrorCode) reportCredentialFailure({ code: diagnosis.repairErrorCode });
-      onOpenReview({ diagnosisId: diagnosis.id, repairError: diagnosis.repairError });
+      // The card records the project its test ran in; the chat may have switched agent since.
+      onOpenReview({ diagnosisId: diagnosis.id, repairError: diagnosis.repairError }, card.result?.projectId);
     } catch (error) {
       reportCredentialFailure(error);
       setChatError(error?.message ?? 'Could not start the fix flow.');
@@ -424,7 +452,12 @@ export default function ChatView({
     <div className="chat">
       <header className="page-head">
         <h1 className="truncate">{chat.title}</h1>
-        {agents.length ? (
+        {agents.length === 1 && agent ? (
+          // One agent: nothing to choose, so just name it.
+          <span className="chat-agent-name truncate font-medium" aria-label="Chat agent">
+            {(agent.name || agent.model || agent.endpoint) + (isConnected(agent, nowMs) ? '' : ' · Not connected')}
+          </span>
+        ) : agents.length ? (
           <select
             className="chat-agent-select"
             aria-label="Chat agent"
@@ -472,9 +505,9 @@ export default function ChatView({
           <div className="chat-narrow">
             <h2 className="hero">Connect an agent to get started</h2>
             <p className="muted">Please connect an agent from the Agent Manager.</p>
-            <button type="button" className="btn-secondary btn-accent" onClick={onOpenAgentManager}>
+            <Button type="button" variant="brand" onClick={onOpenAgentManager}>
               Open Agent Manager
-            </button>
+            </Button>
           </div>
         ) : !agentConnected && chat.messages.length === 0 ? (
           <div className="chat-narrow">
@@ -483,9 +516,9 @@ export default function ChatView({
             <p className="muted">
               Reconnect this agent, or switch to a connected agent above.
             </p>
-            <button type="button" className="btn-secondary btn-accent" onClick={reconnect}>
+            <Button type="button" variant="brand" onClick={reconnect}>
               Reconnect agent
-            </button>
+            </Button>
           </div>
         ) : chat.messages.length === 0 ? (
           <div className="chat-narrow">
@@ -496,7 +529,12 @@ export default function ChatView({
           </div>
         ) : (
           <div className="chat-narrow messages">
-            {chat.messages.map((m) =>
+            {hiddenCount ? (
+              <Button type="button" variant="outline" size="sm" className="self-center" onClick={showEarlier}>
+                Show earlier messages ({hiddenCount})
+              </Button>
+            ) : null}
+            {visibleMessages.map((m) =>
               m.role === 'user' ? (
                 <article key={m.id} className="message-row message-user" aria-label="Your message">
                   <header className="message-head">
@@ -505,6 +543,14 @@ export default function ChatView({
                   </header>
                   <div className="message-content">
                     <div className="bubble-user">{m.text}</div>
+                    {m.context ? (
+                      <details className="mt-1 text-right text-xs text-muted-foreground">
+                        <summary className="cursor-pointer list-none">
+                          {m.kind === 'run' ? 'Policy or context used for this test' : 'Policy or context attached · kept for this chat'}
+                        </summary>
+                        <p className="mt-1 text-left whitespace-pre-wrap">{m.context}</p>
+                      </details>
+                    ) : null}
                   </div>
                 </article>
               ) : (
@@ -557,13 +603,13 @@ export default function ChatView({
           <div className="chat-narrow">
             <div className="error-box" role="alert">
               <p>{chatError}</p>
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="outline"
                 onClick={reconnect}
               >
                 Reconnect
-              </button>
+              </Button>
             </div>
           </div>
         ) : null}
@@ -572,7 +618,7 @@ export default function ChatView({
         {conn && !agentConnected && !chatError && chat.messages.length > 0 ? (
           <div className="composer-connection-note" role="status">
             <span>This agent needs to reconnect.</span>
-            <button type="button" className="link" onClick={reconnect}>Reconnect agent</button>
+            <Button type="button" variant="inline" size="inline" onClick={reconnect}>Reconnect agent</Button>
           </div>
         ) : null}
         {selectedTest ? <TestCard

@@ -5,6 +5,11 @@ import { useFetch } from '../hooks.js';
 import { Field, Spinner } from '../ui.jsx';
 import { isCredentialExpired } from '../credentialErrors.js';
 
+const MISSING_PROJECT =
+  'This agent no longer exists on the server. It was deleted, or connected while the app used a different database. Remove it, then connect it again as a new agent.';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+
 export default function ConnectForm({
   initialName = '',
   initialEndpoint = '',
@@ -13,8 +18,11 @@ export default function ConnectForm({
   reconnectAgent = null,
   onConnect,
   onCancel,
+  onRemove,
 }) {
   const reconnecting = Boolean(reconnectAgent);
+  // The agent's project no longer exists (deleted, or made on another server).
+  const [projectGone, setProjectGone] = useState(false);
   const [name, setName] = useState(reconnectAgent?.name ?? initialName);
   const [endpoint, setEndpoint] = useState(reconnectAgent?.endpoint ?? initialEndpoint);
   const [model, setModel] = useState(reconnectAgent?.model ?? initialModel);
@@ -136,6 +144,11 @@ export default function ConnectForm({
       );
     } catch (error) {
       if (error?.name === 'AbortError') return;
+      if (reconnecting && error instanceof ApiError && error.status === 404 && !isCredentialExpired(error)) {
+        setProjectGone(true);
+        setFormError(MISSING_PROJECT);
+        return;
+      }
       if (isCredentialExpired(error) && stash.current) {
         stash.current.credentialId = null;
         stash.current.expiresAt = null;
@@ -156,7 +169,7 @@ export default function ConnectForm({
       {reconnecting ? <p className="muted">Refresh this agent’s connection using the server key or enter your API key again.</p> : null}
       <Field label="Agent name (optional)">
         {(id) => (
-          <input
+          <Input
             id={id}
             value={name}
             maxLength={200}
@@ -201,7 +214,7 @@ export default function ConnectForm({
         <>
           <Field label="Endpoint" error={errors.endpoint}>
             {(id) => (
-              <input
+              <Input
                 id={id}
                 type="url"
                 value={endpoint}
@@ -215,7 +228,7 @@ export default function ConnectForm({
           </Field>
           <Field label="Model" error={errors.model}>
             {(id) => (
-              <input
+              <Input
                 id={id}
                 value={model}
                 placeholder="e.g. llama-3.3-70b"
@@ -228,7 +241,7 @@ export default function ConnectForm({
           </Field>
           <Field label="API key" error={errors.apiKey}>
             {(id) => (
-              <input
+              <Input
                 id={id}
                 type="password"
                 value={apiKey}
@@ -259,13 +272,19 @@ export default function ConnectForm({
       ) : null}
       {!reconnecting && form.isFirst ? <p className="muted">{FIRST_DEFAULT_NOTE}</p> : null}
       <div className="connect-actions">
-        <button type="submit" className="btn-primary" disabled={pending}>
+        {projectGone && onRemove ? (
+          <Button type="button" variant="destructive" className="flex-1" onClick={() => onRemove(reconnectAgent.id)}>
+            Remove this agent
+          </Button>
+        ) : (
+        <Button type="submit" variant="brand" className="flex-1" disabled={pending}>
           {pending ? <Spinner label={reconnecting ? 'Reconnecting…' : 'Connecting…'} /> : reconnecting ? 'Reconnect agent' : 'Connect agent'}
-        </button>
+        </Button>
+        )}
         {onCancel ? (
-          <button type="button" className="btn-secondary" onClick={onCancel} disabled={pending}>
+          <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>
             Cancel
-          </button>
+          </Button>
         ) : null}
       </div>
       {formError ? (

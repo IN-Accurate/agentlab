@@ -9,6 +9,7 @@ import {
   invalidateCredential,
   loadAgentStore,
   removeAgent,
+  forgetAgent,
   repointChats,
   reconcileCredentialMetadata,
   refreshAgentChats,
@@ -26,8 +27,11 @@ import {
 } from './chatGroups.js';
 import { loadUi, saveUi } from './uiState.js';
 import LogoMark from './LogoMark.jsx';
-import { Spinner, Toast, shortId } from './ui.jsx';
+import { Plus } from 'lucide-react';
+import { Segmented, Spinner, Toast, shortId } from './ui.jsx';
+import { PROJECT_RESET } from './dashboard/projectScope.js';
 import { api } from './api.js';
+import { Button } from '@/components/ui/button';
 
 const loadChatView = () => import('./chat/ChatView.jsx');
 const loadConnectForm = () => import('./chat/ConnectForm.jsx');
@@ -444,6 +448,14 @@ export default function App() {
     setAgents((as) => setDefault(as, agentId));
   }
 
+  function forgetMissingAgent(agentId) {
+    const { agents: next, removed } = forgetAgent(agents, agentId);
+    if (!removed) return;
+    setConnectNotice(null);
+    setAgents(next);
+    setChats((cs) => repointChats(cs, agentId, getDefaultAgent(next)));
+  }
+
   function deleteAgent(agentId) {
     const { agents: next, removed } = removeAgent(agents, agentId);
     if (!removed) return;
@@ -473,8 +485,21 @@ export default function App() {
     setView('dashboard');
   }
 
-  function openReview(review) {
-    patchDash({ tab: 'improvements', review });
+  function openReview(review, testProjectId = null) {
+    // The review belongs to the chat's agent, not whichever project the dashboard
+    // showed last; without this the Improvements tab waited forever.
+    const projectId =
+      testProjectId ??
+      getAgentForChat(agents, activeChat)?.projectId ??
+      activeChat?.connection?.projectId ??
+      dash.projectId;
+    // A different project starts clean; only the review being opened carries over.
+    patchDash({
+      ...(projectId !== dash.projectId ? PROJECT_RESET : {}),
+      tab: 'improvements',
+      review,
+      projectId,
+    });
     setView('dashboard');
   }
 
@@ -504,35 +529,30 @@ export default function App() {
           <span>AgentLab</span>
         </div>
         {connectedAgents.length ? (
-          <button
+          <Button
             type="button"
-            className="new-chat"
+            variant="ghost"
+            className="new-chat w-full justify-start"
             onClick={() => createChat()}
             onPointerEnter={() => preloadView(loadChatView)}
             onFocus={() => preloadView(loadChatView)}
           >
-            <span aria-hidden="true">＋</span> New chat
-          </button>
+            <Plus aria-hidden="true" /> New chat
+          </Button>
         ) : null}
         <nav aria-label="Recent chats">
           <div className="sidebar-heading-row">
             <p className="sidebar-heading">Recent chats</p>
-            <div className="group-toggle" role="group" aria-label="Group chats by">
-              <button
-                type="button"
-                aria-pressed={groupMode === 'date'}
-                onClick={() => setGroupMode('date')}
-              >
-                Date
-              </button>
-              <button
-                type="button"
-                aria-pressed={groupMode === 'agent'}
-                onClick={() => setGroupMode('agent')}
-              >
-                Agent
-              </button>
-            </div>
+            <Segmented
+              label="Group chats by"
+              className="h-7 p-0.5 [&>button]:px-2 [&>button]:text-xs"
+              value={groupMode}
+              onChange={setGroupMode}
+              options={[
+                ['date', 'Date'],
+                ['agent', 'Agent'],
+              ]}
+            />
           </div>
           {groups.map((group) => (
             <div key={group.key} className="chat-group">
@@ -657,57 +677,57 @@ export default function App() {
                             <dd>{agent.endpoint}</dd>
                           </dl>
                           <div className="connect-actions">
-                            <button
+                            <Button
                               type="button"
-                              className="btn-secondary"
+                              variant="outline"
                               onClick={() => reconnectAgent(agent.id)}
                             >
                               Reconnect
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                               type="button"
-                              className="btn-secondary"
+                              variant="outline"
                               onClick={() => createChat(agent)}
                               disabled={!isConnected(agent, nowMs)}
                               title={isConnected(agent, nowMs) ? undefined : 'Reconnect this agent first'}
                             >
                               New chat with this agent
-                            </button>
+                            </Button>
                             {!agent.isDefault && isConnected(agent, nowMs) ? (
-                              <button
+                              <Button
                                 type="button"
-                                className="btn-secondary"
+                                variant="outline"
                                 onClick={() => setDefaultAgent(agent.id)}
                               >
                                 Set as default
-                              </button>
+                              </Button>
                             ) : null}
                             {agent.isDefault ? (
-                              <button
+                              <Button
                                 type="button"
-                                className="btn-secondary"
+                                variant="outline"
                                 disabled
                                 title="The default agent can't be deleted"
                               >
                                 Delete
-                              </button>
+                              </Button>
                             ) : (
-                              <button
+                              <Button
                                 type="button"
-                                className="btn-secondary"
+                                variant="outline"
                                 onClick={() => deleteAgent(agent.id)}
                               >
                                 Delete
-                              </button>
+                              </Button>
                             )}
                           </div>
                         </section>
                       </li>
                     ))}
                   </ul>
-                  <button
+                  <Button
                     type="button"
-                    className="btn-secondary"
+                    variant="outline"
                     onClick={() => {
                       setConnectNotice(null);
                       setReconnectingAgentId(null);
@@ -715,7 +735,7 @@ export default function App() {
                     }}
                   >
                     Connect another agent
-                  </button>
+                  </Button>
                 </>
               ) : (
                 <>
@@ -725,6 +745,10 @@ export default function App() {
                     agents={agents}
                     reconnectAgent={reconnectingAgent}
                     onConnect={connectAgent}
+                    onRemove={(agentId) => {
+                      forgetMissingAgent(agentId);
+                      setReconnectingAgentId(null);
+                    }}
                     onCancel={agents.length ? () => {
                       setChangingAgent(false);
                       setReconnectingAgentId(null);
@@ -752,6 +776,7 @@ export default function App() {
           <DashboardView
             dash={dash}
             patchDash={patchDash}
+            agents={agents}
             chatCredentialId={chatCredentialId}
             onContinueInChat={continueInChat}
             showToast={showToast}

@@ -48,6 +48,62 @@ describe('chat interaction regressions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reconnect', exact: true }));
     expect(onReconnectAgent).toHaveBeenCalledWith('member');
   });
+  it('keeps policy or context given earlier for the follow-up questions', async () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add policy or context' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Optional policy or context' }), {
+      target: { value: 'Company: ShopCore Logistics' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'what is company name' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await act(async () => { emit('message.delta', { text: 'ShopCore Logistics.' }); finish(); });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy());
+    expect(screen.getByText(/Policy or context attached/)).toBeTruthy();
+    // The draft test offered after the reply carries the same policy.
+    expect(screen.getByRole('textbox', { name: 'Policy or context' }).value).toBe('Company: ShopCore Logistics');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'what does this company do' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2));
+    const follow = streamChat.mock.calls[1][1];
+    expect(follow.message).toBe('what does this company do\n\nAdditional context:\nCompany: ShopCore Logistics');
+    expect(follow.history.at(-1)).toEqual({ role: 'user', content: 'what does this company do' });
+  });
+
+  it('opens a long chat at its latest messages and loads earlier ones on request', () => {
+    const messages = Array.from({ length: 120 }, (_, n) => ({
+      id: `m${n}`, role: n % 2 ? 'assistant' : 'user', text: `message ${n}`, kind: 'chat', cards: [],
+    }));
+    function Long() {
+      const [chat, setChat] = useState({ id: 'long', title: 'Long chat', connection, messages, streaming: false });
+      return <ChatView chat={chat} agents={[agent]} onPatch={(_id, update) => setChat(update)} />;
+    }
+    render(<Long />);
+    expect(screen.getAllByRole('article')).toHaveLength(40);
+    expect(screen.getByText('message 119')).toBeTruthy();
+    expect(screen.queryByText('message 79')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show earlier messages (80)' }));
+    expect(screen.getAllByRole('article')).toHaveLength(80);
+    fireEvent.click(screen.getByRole('button', { name: 'Show earlier messages (40)' }));
+    expect(screen.getAllByRole('article')).toHaveLength(120);
+    expect(screen.getByText('message 0')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Show earlier messages/ })).toBeNull();
+  });
+
+  it('labels test-only context differently from context kept for the chat', () => {
+    const messages = [
+      { id: 'c', role: 'user', kind: 'chat', text: 'Hi', context: 'Chat policy', cards: [] },
+      { id: 'r', role: 'user', kind: 'run', text: 'Run test: x', context: 'Test policy', cards: [] },
+    ];
+    function Labels() {
+      const [chat, setChat] = useState({ id: 'l', title: 'Labels', connection, messages, streaming: false });
+      return <ChatView chat={chat} agents={[agent]} onPatch={(_id, update) => setChat(update)} />;
+    }
+    render(<Labels />);
+    expect(screen.getByText('Policy or context attached · kept for this chat')).toBeTruthy();
+    expect(screen.getByText('Policy or context used for this test')).toBeTruthy();
+  });
+
   it('lets the user remove a selected suggestion before sending any message', () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: /No made-up facts/ }));

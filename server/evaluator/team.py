@@ -14,6 +14,7 @@ from evaluator.agent import (
     span,
     start_span,
     validate,
+    with_policy,
 )
 from evaluator.llm import ModelClient, ModelError
 
@@ -132,7 +133,7 @@ class Team:
             limits.get("max_steps", DEFAULT_MAX_STEPS), limits.get("max_tokens")
         )
 
-    def system(self, decision):
+    def system(self, decision, policy=None):
         roster = "\n".join(
             f"- {m.tool}: {m.name}. {m.description}".rstrip()
             for m in self.members.values()
@@ -142,9 +143,10 @@ class Team:
             f"({decision['reason']}). Ask it first; consult others only if needed."
         )
         parts = [self.config.get("system_prompt"), COORDINATOR_PROMPT, roster, note]
-        return "\n\n".join(part for part in parts if part)
+        prompt = "\n\n".join(part for part in parts if part)
+        return with_policy({"system_prompt": prompt}, policy)["system_prompt"]
 
-    async def ask(self, call, parent, params, budget, spans):
+    async def ask(self, call, parent, params, budget, spans, policy=None):
         function = call.get("function") or {}
         member = self.members.get(function.get("name"))
         try:
@@ -179,7 +181,11 @@ class Team:
         node["parent"] = parent
         spans.append(node)
         result = await run_agent(
-            member.model, member.config, task, params, budget=budget
+            member.model,
+            with_policy(member.config, policy),
+            task,
+            params,
+            budget=budget,
         )
         for item in result.spans:
             item.setdefault("parent", node["sdk_span_id"])
@@ -194,7 +200,7 @@ class Team:
         node["payload"]["output"] = clip(result.output)
         return {"answer": result.output}
 
-    async def run(self, query, params=None, history=None):
+    async def run(self, query, params=None, history=None, policy=None):
         result = AgentResult()
         started = start_span()
         decision = route(self.team["router"], query)
@@ -224,7 +230,7 @@ class Team:
             }
             for member in self.members.values()
         ]
-        messages = [{"role": "system", "content": self.system(decision)}]
+        messages = [{"role": "system", "content": self.system(decision, policy)}]
         messages += history or []
         messages.append({"role": "user", "content": query})
         # Members keep their own params; only request overrides reach them.
@@ -266,7 +272,9 @@ class Team:
                     }
                 )
                 for call in reply.tool_calls:
-                    content = await self.ask(call, parent, params, budget, result.spans)
+                    content = await self.ask(
+                        call, parent, params, budget, result.spans, policy
+                    )
                     messages.append(
                         {
                             "role": "tool",

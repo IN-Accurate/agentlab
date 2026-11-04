@@ -37,8 +37,9 @@ export async function proposeFix(resultId, credentialId) {
     const repair = await api(`/v1/diagnoses/${diagnosis.id}/repairs`, { method: 'POST', body });
     return { ...diagnosis, repairId: repair.id };
   } catch (error) {
-    // The diagnosis is saved either way, so the review still opens.
-    return { ...diagnosis, repairError: error?.message ?? 'Could not propose a repair.' };
+    // The diagnosis is saved either way, so the review still opens. The error code
+    // lets chat offer Reconnect when the key expired.
+    return { ...diagnosis, repairError: error?.message ?? 'Could not propose a repair.', repairErrorCode: error?.code ?? null };
   }
 }
 

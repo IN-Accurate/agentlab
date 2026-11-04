@@ -200,6 +200,19 @@ export function removeAgent(agents, agentId) {
   return { agents: list.filter((a) => a.id !== agentId), removed: true };
 }
 
+/**
+ * Drops an agent whose project no longer exists, even the default one: unlike
+ * removeAgent, there is nothing left to keep it for. The next agent becomes default.
+ */
+export function forgetAgent(agents, agentId) {
+  const list = agents ?? [];
+  const target = list.find((a) => a.id === agentId);
+  if (!target) return { agents: list, removed: false };
+  const rest = list.filter((a) => a.id !== agentId);
+  const next = target.isDefault && rest.length ? rest.map((a, i) => ({ ...a, isDefault: i === 0 })) : rest;
+  return { agents: next, removed: true };
+}
+
 export const FIRST_DEFAULT_NOTE = 'This agent will be set as your default agent.';
 export const DEFAULT_DONE_NOTE = 'Set as your default agent.';
 export const replaceDefaultNote = (name) => `This will replace ${name} as your default.`;
