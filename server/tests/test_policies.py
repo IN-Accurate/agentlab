@@ -188,3 +188,124 @@ def test_parse_reads_the_first_object_and_ignores_trailing_braces():
         "Refunds"
     ]
     assert parse('{"policies": [', 5) == []
+
+
+class Recorder:
+    """A fake model that records each system prompt and replays replies in order."""
+
+    def __init__(self, *replies):
+        self.replies, self.systems = list(replies), []
+        http = httpx.AsyncClient(transport=httpx.MockTransport(self.handle))
+        self.client = evaluator.llm.ModelClient(http, "k", "https://m.example/v1", "m")
+
+    def handle(self, request):
+        body = json.loads(request.content)
+        self.systems.append(body["messages"][0]["content"])
+        reply = self.replies.pop(0)
+        return reply if isinstance(reply, httpx.Response) else reply_text(reply)
+
+
+def reply_text(text):
+    return reply(text) if isinstance(text, str) else httpx.Response(200, json=text)
+
+
+def verdict(passed, why):
+    return json.dumps({"passed": passed, "rationale": why})
+
+
+REFUND_POLICY = "Refunds up to Rs 25,000 are approved by the agent; larger ones go to Priya in finance."
+CASE = {
+    "input": "Can I get Rs 30,000 back?",
+    "expected": {
+        "behavior": "Sends large refunds to finance",
+        "context": REFUND_POLICY,
+    },
+}
+
+
+async def test_a_run_gives_the_agent_the_policy_and_the_rule_to_use_only_it():
+    from evaluator.evaluate import evaluate_case
+
+    agent = Recorder("That is over Rs 25,000, so Priya in finance will approve it.")
+    grader = Recorder(
+        verdict(True, "uses the policy"), verdict(True, "sends to finance")
+    )
+    outcome = await evaluate_case(
+        agent.client, grader.client, {"system_prompt": "You are Acme billing."}, CASE
+    )
+    assert outcome.passed
+    system = agent.systems[0]
+    assert system.startswith("You are Acme billing.")
+    assert REFUND_POLICY in system and "Answer only from" in system
+
+
+async def test_an_answer_beyond_the_policy_fails():
+    from evaluator.evaluate import evaluate_case
+
+    agent = Recorder("Approved! You'll also get a free Rs 500 voucher.")
+    grader = Recorder(
+        verdict(False, "the voucher is not in the policy"), verdict(True, "fine")
+    )
+    outcome = await evaluate_case(agent.client, grader.client, {}, CASE)
+    assert not outcome.passed
+    assert "Went beyond the given policy: the voucher is not in the policy" in (
+        outcome.explanation
+    )
+
+
+async def test_tests_without_a_policy_are_unchanged():
+    from evaluator.evaluate import evaluate_case
+
+    agent = Recorder("Hello")
+    grader = Recorder(verdict(True, "greets"))
+    case = {"input": "Hi", "expected": {"behavior": "Greets the user"}}
+    outcome = await evaluate_case(
+        agent.client, grader.client, {"system_prompt": "S"}, case
+    )
+    assert outcome.passed and agent.systems == ["S"] and len(grader.systems) == 1
+
+
+async def test_team_coordinator_and_member_both_get_the_policy():
+    from evaluator.team import Member, Team
+
+    member = Recorder("Priya in finance approves refunds over Rs 25,000.")
+    coordinator = Recorder(
+        {
+            "model": "m",
+            "choices": [
+                {
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "1",
+                                "function": {
+                                    "name": "ask_billing",
+                                    "arguments": json.dumps(
+                                        {"task": "Rs 30,000 refund?"}
+                                    ),
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        },
+        "Priya in finance will approve it.",
+    )
+    config = {
+        "system_prompt": "You run Acme support.",
+        "team": {
+            "members": [{"name": "billing", "project_id": "p"}],
+            "router": {"rules": [], "fallback": "billing"},
+        },
+    }
+    billing = Member(
+        "billing", "Billing", "p", "v", {"system_prompt": "Billing."}, member.client
+    )
+    team = Team(config, coordinator.client, [billing])
+    result = await team.run(CASE["input"], policy=REFUND_POLICY)
+    assert result.output == "Priya in finance will approve it."
+    for system in (coordinator.systems[0], member.systems[0]):
+        assert REFUND_POLICY in system and "Answer only from" in system

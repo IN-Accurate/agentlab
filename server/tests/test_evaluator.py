@@ -569,6 +569,37 @@ async def test_chat_answers_with_history_and_saves_a_trace(api, monkeypatch):
     assert (trace.input, trace.output) == ("hi", "Hello there")
 
 
+async def test_chat_context_becomes_the_agents_policy_on_every_turn(api, monkeypatch):
+    http, app = api
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return completion("ShopCore Logistics delivers parcels for online shops.")
+
+    p, _, c = await setup(http, app, monkeypatch, handler)
+    context = "Company: ShopCore Logistics. It delivers parcels for online shops."
+    history = [
+        {"role": "user", "content": "what is company name"},
+        {"role": "assistant", "content": "The company name is ShopCore Logistics."},
+        {"role": "user", "content": "what does this company do"},
+    ]
+    message = f"what does this company do\n\nAdditional context:\n{context}"
+    body = {"message": message, "history": history, "credential_id": c}
+    response = await http.post(f"/v1/projects/{p}/chat", json=body)
+    assert events(response.text)[-1] == ("done", {})
+    messages = seen[0]["messages"]
+    system = messages[0]["content"]
+    assert f"Business policy and context:\n{context}" in system
+    assert "Answer only from" in system
+    turns = [m["content"] for m in messages[1:]]
+    assert turns == [
+        "what is company name",
+        "The company name is ShopCore Logistics.",
+        "what does this company do",
+    ]
+
+
 async def test_chat_reports_model_failure(api, monkeypatch):
     http, app = api
     p, _, c = await setup(
@@ -595,10 +626,14 @@ async def test_chat_run_test_returns_card_and_reuses_case(api, monkeypatch):
             prompts.append(body)
             return completion("Can I get a refund?")
         if "grade" in system:
+            if "relies only on the business policy" in body["messages"][1]["content"]:
+                return completion('{"passed": true, "rationale": "Uses the policy"}')
             return completion('{"passed": false, "rationale": "Too vague"}')
         if system.startswith("You diagnose"):
             return completion('{"rule": "grounding", "confidence": 0.5}')
-        assert "30 days" in system
+        # The agent gets the policy once, with the rule to answer only from it.
+        assert system.count("Business policy and context:\n30 days") == 1
+        assert "Answer only from" in system
         return completion("Maybe")
 
     p, _, c = await setup(http, app, monkeypatch, handler)

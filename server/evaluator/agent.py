@@ -159,6 +159,23 @@ def retrieve(config, query):
     ]
 
 
+POLICY_RULE = (
+    "Answer only from your instructions, this business policy and any other context "
+    "or tool results you are given. If they do not cover the request, say so plainly "
+    "instead of guessing or using outside knowledge."
+)
+
+
+def with_policy(config, policy):
+    """The test's business policy goes into the agent's own prompt, so the model
+    answers from it rather than from what it happens to know."""
+    if not isinstance(policy, str) or not policy.strip():
+        return config
+    section = f"Business policy and context:\n{policy.strip()}\n\n{POLICY_RULE}"
+    parts = [config.get("system_prompt"), section]
+    return {**config, "system_prompt": "\n\n".join(part for part in parts if part)}
+
+
 def system_message(config, chunks):
     parts = [config.get("system_prompt"), config.get("grounding_rule")]
     if chunks:

@@ -17,7 +17,7 @@ from app.models import (
     TestCase,
     Verification,
 )
-from evaluator.agent import AgentResult, check, run_agent, save_trace
+from evaluator.agent import AgentResult, check, run_agent, save_trace, with_policy
 from evaluator.llm import ModelClient, ModelError
 from evaluator.team import runner
 
@@ -27,6 +27,11 @@ GROUNDED = (
     "It invents nothing the tools did not return and contradicts none of it."
 )
 NO_TOOL_RESULT = "Answered without using any tool result"
+CONTEXT_ONLY = (
+    "The output relies only on the business policy and context given and on any tool "
+    "results: it adds no facts, numbers, limits or promises they do not support. "
+    "Saying the policy does not cover something is allowed."
+)
 CONTEXT_MARK = "\n\nAdditional context:\n"
 ERROR_PREFIX = "Error:"
 EMPTY_ANSWER = "The model returned an empty answer"
@@ -149,11 +154,14 @@ def tool_notes(expected, calls):
 
 async def evaluate_case(model, grader, config, case, params=None, team=None):
     query, expected = case["input"], case.get("expected") or {}
+    policy = expected.get("context")
     if team:
-        result = await team.run(query, params)
+        result = await team.run(query, params, policy=policy)
     else:
         # The grader plays simulated tools, so the agent never answers its own calls.
-        result = await run_agent(model, config, query, params, simulator=grader)
+        result = await run_agent(
+            model, with_policy(config, policy), query, params, simulator=grader
+        )
     calls = tool_calls(result)
     outcome = Outcome(result)
     reason = failure_reason(result)
@@ -180,6 +188,13 @@ async def evaluate_case(model, grader, config, case, params=None, team=None):
                 )
                 if not grounded:
                     notes.append(f"Not grounded in tool results: {why}")
+        if isinstance(policy, str) and policy.strip():
+            # The agent was told to answer from the policy only; check that it did.
+            within, why = await grade(
+                grader, query, result.output, CONTEXT_ONLY, policy, calls
+            )
+            if not within:
+                notes.append(f"Went beyond the given policy: {why}")
     explanation = ""
     if expected.get("behavior") and not reason:
         passed, explanation = await grade(
@@ -372,10 +387,8 @@ async def run_chat_test(db, context, options, version, model, message):
         judge=True,
     )
     case = await find_test_case(db, grader, version.project_id, behavior, background)
+    # evaluate_case gives the case's policy to the agent, as in any run.
     config = dict(version.config or {})
-    if background:
-        parts = [config.get("system_prompt"), f"Context:\n{background}"]
-        config["system_prompt"] = "\n\n".join(part for part in parts if part)
     team = await runner(context, options, config, model, version.project_id)
     outcome = await evaluate_case(model, grader, config, case, team=team)
     run = Run(app_version_id=version.id, params={}, model=model.model)
@@ -409,16 +422,22 @@ async def stream_chat(payload, context):
         yield {"event": "done", "data": {}}
         return
     history = prior_messages(options.get("history") or [], message)
+    # Policy or context sent with a chat message is the conversation's policy: it goes
+    # into the agent's instructions, not the user turn, so the agent answers from it.
+    question, _, policy = message.partition(CONTEXT_MARK)
+    policy = policy.strip() or None
     team = await runner(context, options, config, model, version.project_id)
     if team:
-        result = await team.run(message, history=history)
+        result = await team.run(question, history=history, policy=policy)
         decision = result.spans[0]["payload"]
         yield {
             "event": "step.finished",
             "data": {"step": f"Routed to {decision['choice']}", "route": decision},
         }
     else:
-        result = await run_agent(model, config, message, history=history)
+        result = await run_agent(
+            model, with_policy(config, policy), question, history=history
+        )
     await save_trace(db, version.id, message, result)
     reason = failure_reason(result)
     if reason:
