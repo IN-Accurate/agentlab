@@ -9,6 +9,7 @@ import {
   invalidateCredential,
   loadAgentStore,
   removeAgent,
+  forgetAgent,
   repointChats,
   reconcileCredentialMetadata,
   refreshAgentChats,
@@ -447,6 +448,14 @@ export default function App() {
     setAgents((as) => setDefault(as, agentId));
   }
 
+  function forgetMissingAgent(agentId) {
+    const { agents: next, removed } = forgetAgent(agents, agentId);
+    if (!removed) return;
+    setConnectNotice(null);
+    setAgents(next);
+    setChats((cs) => repointChats(cs, agentId, getDefaultAgent(next)));
+  }
+
   function deleteAgent(agentId) {
     const { agents: next, removed } = removeAgent(agents, agentId);
     if (!removed) return;
@@ -476,11 +485,14 @@ export default function App() {
     setView('dashboard');
   }
 
-  function openReview(review) {
+  function openReview(review, testProjectId = null) {
     // The review belongs to the chat's agent, not whichever project the dashboard
     // showed last; without this the Improvements tab waited forever.
     const projectId =
-      getAgentForChat(agents, activeChat)?.projectId ?? activeChat?.connection?.projectId ?? dash.projectId;
+      testProjectId ??
+      getAgentForChat(agents, activeChat)?.projectId ??
+      activeChat?.connection?.projectId ??
+      dash.projectId;
     // A different project starts clean; only the review being opened carries over.
     patchDash({
       ...(projectId !== dash.projectId ? PROJECT_RESET : {}),
@@ -734,7 +746,7 @@ export default function App() {
                     reconnectAgent={reconnectingAgent}
                     onConnect={connectAgent}
                     onRemove={(agentId) => {
-                      deleteAgent(agentId);
+                      forgetMissingAgent(agentId);
                       setReconnectingAgentId(null);
                     }}
                     onCancel={agents.length ? () => {

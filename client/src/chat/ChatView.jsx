@@ -420,7 +420,8 @@ export default function ChatView({
     try {
       const diagnosis = await proposeFix(resultId, conn.credentialId);
       if (diagnosis.repairErrorCode) reportCredentialFailure({ code: diagnosis.repairErrorCode });
-      onOpenReview({ diagnosisId: diagnosis.id, repairError: diagnosis.repairError });
+      // The card records the project its test ran in; the chat may have switched agent since.
+      onOpenReview({ diagnosisId: diagnosis.id, repairError: diagnosis.repairError }, card.result?.projectId);
     } catch (error) {
       reportCredentialFailure(error);
       setChatError(error?.message ?? 'Could not start the fix flow.');

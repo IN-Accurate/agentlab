@@ -143,13 +143,16 @@ describe('saved agent and chat state', () => {
 });
 
 describe('find a fix', () => {
-  it('opens the review on the chat agent’s project, not the dashboard’s last one', async () => {
+  it.each([
+    ['the chat agent’s project, not the dashboard’s last one', undefined, 'billing'],
+    ['the project the test ran in, even after the chat switched agent', 'other', 'other'],
+  ])('opens the review on %s', async (_label, testProject, expected) => {
     const { proposeFix } = await import('./api.js');
     const billing = { ...agent, id: 'billing', projectId: 'billing', name: 'Billing agent' };
     const other = { ...agent, id: 'other', projectId: 'other', name: 'Other agent', isDefault: false };
     const card = {
       id: 'card', kind: 'test', status: 'done', title: 'New test', expected: 'Asks if it can help',
-      result: { verdict: 'fail', expected: 'Asks if it can help', actual: 'Done.', resultId: 'result-1', runId: 'run-1' },
+      result: { verdict: 'fail', expected: 'Asks if it can help', actual: 'Done.', resultId: 'result-1', runId: 'run-1', projectId: testProject },
     };
     const chat = draft('billing-chat', 'Billing chat', {
       agentId: 'billing',
@@ -160,7 +163,7 @@ describe('find a fix', () => {
       ],
     });
     saveChats([chat], 'billing-chat', [billing, other]);
-    localStorage.setItem('agentlab.ui.v1', JSON.stringify({ view: 'chat', activeId: 'billing-chat', dash: { projectId: 'other', tab: 'overview' } }));
+    localStorage.setItem('agentlab.ui.v1', JSON.stringify({ view: 'chat', activeId: 'billing-chat', dash: { projectId: testProject ? 'billing' : 'other', tab: 'overview' } }));
     proposeFix.mockResolvedValue({ id: 'diagnosis-1' });
     api.mockImplementation(async (path) => {
       if (path === '/v1/projects/billing') return { id: 'billing', name: 'Billing agent' };
@@ -170,6 +173,6 @@ describe('find a fix', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: 'Find a fix' }));
     const picker = await screen.findByRole('combobox', { name: 'Project' }, { timeout: 5000 });
-    expect(picker.value).toBe('billing');
+    expect(picker.value).toBe(expected);
   });
 });

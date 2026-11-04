@@ -45,6 +45,7 @@ export const PROJECT_RESET = {
   runId: null,
   resultId: null,
   traceId: null,
+  traceVerdict: null,
   review: null,
   spanId: null,
   runVersion: 'all',

@@ -26,7 +26,11 @@ export default memo(function ResponsePreview({ children, className = '', title =
         </Button>
       </div>
       {open ? (
-        <Modal title={title} className="response-modal" onClose={() => setOpen(false)}>
+        <Modal
+          title={title}
+          className="response-modal flex max-h-[min(84dvh,900px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px]"
+          onClose={() => setOpen(false)}
+        >
           <div className="response-modal-body"><Markdown>{text}</Markdown></div>
           {action ? <div className="response-modal-actions">{action}</div> : null}
         </Modal>
