@@ -186,9 +186,7 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
           </p>
         ) : null}
         {pending ? (
-          <p className="muted" role="status">
-            {progress === 1 ? 'Finishing…' : 'Evaluation running… this can take a while.'}
-          </p>
+          <Spinner label={progress === 1 ? 'Finishing…' : 'Running evaluation…'} />
         ) : null}
         <div className="modal-actions">
           <button type="button" className="btn-secondary" onClick={onClose} disabled={pending}>
@@ -240,10 +238,15 @@ export default function DashboardView({
   if (projects.error) return <ErrorBox error={projects.error} onRetry={projects.reload} />;
   if (!projects.data?.items?.length)
     return (
-      <Empty
-        title="No projects yet"
-        hint="Connect an agent in a chat to create your first project."
-      />
+      <div className="chat-narrow">
+        <Empty
+          title="No projects yet"
+          hint="Connect an agent in a chat to create your first project."
+        />
+        <button type="button" className="btn-secondary btn-accent" onClick={onOpenAgentManager}>
+          Open Agent Manager
+        </button>
+      </div>
     );
   if (!dash.projectId) return <Spinner />;
 
@@ -370,7 +373,8 @@ export default function DashboardView({
           </button>
         ))}
       </nav>
-      {board.loading ? (
+      {board.loading && board.data ? <Spinner label="Refreshing dashboard…" /> : null}
+      {board.loading && !board.data ? (
         <Spinner />
       ) : board.error ? (
         <ErrorBox error={board.error} onRetry={board.reload} />

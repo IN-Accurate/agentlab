@@ -139,12 +139,12 @@ export default function OverviewTab({ projectId, data, onReviewChange }) {
         </div>
         <div className="card accent-card">
           <p className="metric-label">Holdout</p>
-          <HoldoutMetric change={change.data} />
+          <HoldoutMetric change={change.data} loading={change.loading} />
         </div>
         <div className="card accent-card">
           <p className="metric-label">Regressions</p>
           {change.loading ? (
-            <p className="muted">…</p>
+            <Spinner label="Loading regressions…" />
           ) : change.data ? (
             <>
               <p className={`metric-value ${change.data.verification.regressions_count ? '' : 'good'}`}>
@@ -229,11 +229,12 @@ export default function OverviewTab({ projectId, data, onReviewChange }) {
   );
 }
 
-function HoldoutMetric({ change }) {
+function HoldoutMetric({ change, loading }) {
   const summary = useFetch(
     change ? `holdout-${change.verification.candidate_run_id}` : null,
     () => api(`/v1/runs/${change.verification.candidate_run_id}/summary`),
   );
+  if (loading || summary.loading) return <Spinner label="Loading holdout…" />;
   if (!change) {
     return (
       <>
@@ -242,7 +243,6 @@ function HoldoutMetric({ change }) {
       </>
     );
   }
-  if (summary.loading) return <p className="muted">…</p>;
   if (summary.error || !summary.data)
     return (
       <>

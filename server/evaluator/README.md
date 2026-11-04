@@ -11,6 +11,7 @@ python -m uvicorn evaluator.asgi:app --app-dir server --env-file .env --reload
 | llm.py | OpenAI-compatible model client: retries, size limit, failure kinds |
 | agent.py | Hosted/external agent, retrieval, tools, validators, trace persistence |
 | evaluate.py | `run` operation, pass/fail grading and `stream_chat` |
+| policies.py | `suggest_policies` proposes policies from an agent's name and prompt |
 | repair.py | `repair` proposes a prompt change; `verify` compares both versions |
 | team.py | Rules router, one coordinator handing tasks to member agents, step and token limits |
 | diagnosis.py | Ordered rule engine with judge fallback |
@@ -19,13 +20,44 @@ python -m uvicorn evaluator.asgi:app --app-dir server --env-file .env --reload
 
 ## Operations
 
-`test_connection`, `diagnose`, `run`, `repair`, `verify` and `stream_chat` are implemented. `improve`, `replay` and `seed` return 503 `evaluator_operation_unavailable`.
+`test_connection`, `diagnose`, `run`, `repair`, `verify`, `suggest_policies` and `stream_chat` are implemented. `improve`, `replay` and `seed` return 503 `evaluator_operation_unavailable`.
 
 `run` saves the run first, then commits each result with its trace as it finishes. A result passes when the agent returns a non-empty answer and every check holds: failed validators, `expected.reference`, `expected.behavior` (graded by the judge model) and the case's assertions. A case with no checks passes on a non-empty answer alone. A grader that fails or gives an unusable reply counts as a failure.
 
 `repair` asks the judge model for a new system prompt, or applies a supplied `patch`, and saves it as a child version. It never sees holdout expectations, and rejects a holdout target. `verify` runs the baseline and candidate on every test at temperature 0. A candidate is accepted only when the target test passes, no test regresses, and the project has holdout tests that did not get worse. Holdout passing needs at least one holdout test.
 
 `stream_chat` answers with the project's latest version. A message starting `Run test: ` treats the rest as expected behaviour: it writes a test prompt, saves or reuses a test case and returns a `run_summary` card. The whole answer is sent at once because the model client does not stream.
+
+`suggest_policies` (`POST /v1/projects/{id}/policy-suggestions`, body `credential_id` and optional `count` 1 to 8, default 5) sends the agent's name and latest system prompt to the judge model as untrusted data. It returns `name` and `policies`, each with `title`, `policy` (the rule to follow), `test` (the behaviour a test should expect) and `input` (a customer message that tests it). Suggestions with a missing field or a repeated title are dropped. If none are usable, or the model call fails, it returns 502 `policy_suggestions_failed`. Nothing is saved. Suggestions are drafts: a business edits any field (its own limits, currency, approvers, wording), then saves the result with the existing test-case API as `input` plus `expected` `{"behavior": test, "context": policy, "policy": title}`, and can change it later with `PATCH /v1/test-cases/{id}`. The judge grades against that policy. If the agent fails, `repair` treats `expected.context` as the business's own rule and writes it into the new prompt, and `verify` decides whether to accept it.
+
+## Simulated tools
+
+Each entry in a version's `tools` has a name, description and JSON Schema `parameters`. Two kinds really run:
+
+- `{"builtin": "search"}` adds a `search` tool over Wikipedia's public API (no key). It returns the top three articles with their title, URL and a plain-text extract.
+- An entry with `"endpoint": "https://..."` is a connected tool. AgentLab POSTs the checked arguments as JSON and gives the agent the JSON reply (or `{"text": ...}`). Requests go through the evaluator's safe client: HTTPS only, public addresses only, 20 seconds and 200 KB at most. A refused URL, an HTTP error or a timeout becomes a tool error (`tool_blocked`, `tool_http`, `tool_timeout`), not a failed run. Endpoints take no credentials yet.
+
+Every other tool answers in this order:
+
+1. `results`: a list of `{"when": {...}, "result": ...}`, used when every `when` value equals the call's argument.
+2. `result`: one canned answer.
+3. `simulate`: `true`, or `{"instructions": "scenario notes"}`. A model plays the tool from its schema, the arguments and the notes, at temperature 0, and must reply with JSON.
+
+With none of these, the call fails with `no_executor`. Arguments are checked against the schema before anything answers, so a bad call never reaches the simulator. During `run` and `verify` the judge model plays the tool, so the agent under test never answers its own calls. In chat and inside teams, the agent's own model plays it. A tool span records `arguments`, `result` or `error`, and `simulated: true` when a model answered.
+
+A test can check tool use:
+
+```json
+{
+  "tool_calls": [{"name": "lookup_order", "arguments": {"order_id": "KE-4521"}}],
+  "forbidden_tools": ["issue_refund"],
+  "behavior": "Tells the customer the courier the tool returned"
+}
+```
+
+`"grounded": true` catches agents that have tools but still guess. The test fails if no tool returned a result, or if the judge finds a claim the tool results do not support or that contradicts them. A correct answer from memory still fails, because nothing checked it.
+
+Each `tool_calls` entry needs a call with that name whose arguments include the given values. The call counts even if the tool then fails (an endpoint error or timeout), because the agent still chose the right tool; a call with invalid arguments does not count. Calling a `forbidden_tools` entry fails the test. When a test has either key, any call to an unknown tool or with invalid arguments also fails it. The judge sees every tool call and its result when grading `behavior`.
 
 ## Teams
 

@@ -210,17 +210,9 @@ export default function TracesTab({
   const versionFilter = dash.traceVersion ?? 'all';
   const statusFilter = dash.traceStatus ?? 'all';
 
-  const versionSig = versions.map((v) => v.version_id).join(',');
-  const list = useFetch(`traces-${projectId}-${versionFilter}-${statusFilter}-${versionSig}`, async () => {
-    const params = new URLSearchParams({ limit: '100' });
-    if (versionFilter !== 'all') params.set('version_id', versionFilter);
-    if (statusFilter !== 'all') params.set('status', statusFilter);
-    const page = await api(`/v1/traces?${params}`);
-    const ids = new Set(versions.map((v) => v.version_id));
-    return (page.items ?? []).filter((t) => versionFilter !== 'all' || ids.has(t.app_version_id));
-  });
+  const list = useTraceRequests(projectId, versionFilter, statusFilter);
 
-  const traceId = dash.traceId ?? list.data?.[0]?.id ?? null;
+  const traceId = dash.traceId ?? list.items[0]?.id ?? null;
   const detail = useFetch(
     traceId ? `trace-${traceId}` : null,
     () => api(`/v1/traces/${traceId}`),
@@ -248,8 +240,15 @@ export default function TracesTab({
   }, [traceDiagnoses.data]);
 
   const rows = useMemo(() => flattenTree(detail.data?.span_tree ?? []), [detail.data]);
-  const spanId = dash.spanId ?? rows[0]?.node.id ?? null;
+  const spanId = rows.some((row) => row.node.id === dash.spanId)
+    ? dash.spanId
+    : rows[0]?.node.id ?? null;
   const span = rows.find((r) => r.node.id === spanId)?.node ?? null;
+
+  function turnPage(direction) {
+    list[direction]();
+    patchDash({ traceId: null, spanId: null, traceVerdict: null });
+  }
 
   async function createTest() {
     if (!traceId || working) return;
@@ -379,11 +378,11 @@ export default function TracesTab({
             <Spinner />
           ) : list.error ? (
             <ErrorBox error={list.error} onRetry={list.reload} />
-          ) : !list.data?.length ? (
+          ) : !list.items.length ? (
             <p className="muted">No requests match.</p>
           ) : (
             <ul>
-              {list.data.map((t) => (
+              {list.items.map((t) => (
                 <li key={t.id}>
                   <button
                     type="button"
@@ -404,6 +403,27 @@ export default function TracesTab({
               ))}
             </ul>
           )}
+          <nav className="request-pagination" aria-label="Request pages">
+            <button
+              type="button"
+              className="btn-secondary"
+              aria-label="Previous requests page"
+              disabled={!list.hasPrevious || list.loading}
+              onClick={() => turnPage('previous')}
+            >
+              Previous
+            </button>
+            <span className="request-page-number" aria-live="polite">Page {list.page}</span>
+            <button
+              type="button"
+              className="btn-secondary"
+              aria-label="Next requests page"
+              disabled={!list.hasNext || list.loading || Boolean(list.error)}
+              onClick={() => turnPage('next')}
+            >
+              Next
+            </button>
+          </nav>
           {traceId ? (
             <div className="rail-actions">
               <button type="button" className="link" onClick={createTest} disabled={!!working}>
@@ -427,7 +447,9 @@ export default function TracesTab({
           ) : null}
         </aside>
         <div className="runs-main">
-          {!traceId ? (
+          {list.loading && !traceId ? (
+            <Spinner label="Loading requests…" />
+          ) : !traceId ? (
             <Empty title="No request selected" hint="Select a request from the rail." />
           ) : detail.loading ? (
             <Spinner />
@@ -452,7 +474,7 @@ export default function TracesTab({
               </p>
               <h3>Span tree &amp; timing</h3>
               {rows.length ? (
-                <Waterfall
+                <TraceWaterfall
                   rows={rows}
                   selectedId={spanId}
                   onSelect={(id) => patchDash({ spanId: id })}

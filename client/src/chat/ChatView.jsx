@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import { getAgentForChat, isConnected } from '../agentStore.js';
 import { api, proposeFix, streamChat } from '../api.js';
 import Composer from './Composer.jsx';
 import TestCard from './TestCard.jsx';
+import ResponsePreview from './ResponsePreview.jsx';
+import ChatAvatar from './ChatAvatar.jsx';
+import { appendTurn, hasUserMessage, removeDraft } from './turns.js';
+import { isCredentialExpired } from '../credentialErrors.js';
+import './styles.css';
 
 let counter = 0;
 const nextId = () => `m${Date.now()}-${counter++}`;
@@ -69,14 +75,20 @@ function titleFor(text) {
   return words.length > 6 ? `${head}…` : head;
 }
 
-function SuggestedTests({ heading, tests, onAdd }) {
+function SuggestedTests({ heading, tests, onAdd, selected }) {
   if (!tests.length) return null;
   return (
     <section className="suggested-tests" aria-label={heading}>
       <p className="assistant-label">{heading}</p>
       <div className="eval-presets">
         {tests.map((test) => (
-          <button key={test.label} type="button" className="eval-preset" onClick={() => onAdd(test)}>
+          <button
+            key={test.label}
+            type="button"
+            className={`eval-preset${selected === test.expected ? ' selected' : ''}`}
+            aria-pressed={selected === test.expected}
+            onClick={() => onAdd(test)}
+          >
             <strong>{test.label}</strong>
             <span className="muted">{test.expected}</span>
           </button>
@@ -88,22 +100,48 @@ function SuggestedTests({ heading, tests, onAdd }) {
 
 export default function ChatView({
   chat,
+  agents = [],
+  nowMs = Date.now(),
   agentKeys = {},
   onPatch,
   onOpenAgentManager,
+  onReconnectAgent,
+  onCredentialInvalid,
   onOpenEvidence,
   onOpenReview,
 }) {
   const [chatError, setChatError] = useState('');
   const [findingFix, setFindingFix] = useState(null);
+  const [selectedTest, setSelectedTest] = useState(null);
+  // null routes ambiguous team failures to Manager; undefined uses this chat's agent.
+  const [reconnectTargetId, setReconnectTargetId] = useState(undefined);
   const aborter = useRef(null);
   const scrollRef = useRef(null);
-  const conn = chat.connection;
+  const stickToBottom = useRef(true);
+  const thinkingMessageId = chat.streaming ? chat.messages.at(-1)?.id : null;
+  const agent = getAgentForChat(agents, chat);
+  const agentConnected = isConnected(agent, nowMs);
+  const conn = agent ? {
+    ...chat.connection,
+    ...agent,
+    ownProject: chat.connection?.projectId === agent.projectId && chat.connection.ownProject,
+  } : chat.connection;
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stickToBottom.current) el.scrollTop = chat.messages.length ? el.scrollHeight : 0;
   }, [chat.messages.length]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    const content = el?.firstElementChild;
+    if (!el || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottom.current && chat.messages.length) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [chat.messages.length === 0]);
 
   useEffect(() => () => aborter.current?.abort(), []);
 
@@ -119,6 +157,34 @@ export default function ChatView({
     onPatch(chat.id, (c) => ({ ...c, messages: c.messages.map(map) }));
   }
 
+  function reconnect() {
+    const targetId = reconnectTargetId === undefined ? agent?.id : reconnectTargetId;
+    if (targetId && onReconnectAgent) onReconnectAgent(targetId);
+    else onOpenAgentManager?.();
+  }
+
+  function reportCredentialFailure(error) {
+    if (!isCredentialExpired(error) || !conn?.credentialId) return;
+    const memberIds = (conn.memberProjectIds ?? []).map((id) => agentKeys[id]).filter(Boolean);
+    if (!memberIds.length) {
+      setReconnectTargetId(agent?.id);
+      onCredentialInvalid?.(conn.credentialId);
+      return;
+    }
+    setReconnectTargetId(null);
+    // Team failures can originate from a member's key. Confirm which saved
+    // credential failed rather than disconnecting a healthy coordinator.
+    for (const credentialId of new Set([conn.credentialId, ...memberIds])) {
+      void Promise.resolve().then(() => api(`/v1/credentials/${encodeURIComponent(credentialId)}`)).catch((failure) => {
+        if (isCredentialExpired(failure)) {
+          onCredentialInvalid?.(credentialId);
+          const failedAgent = agents.find((saved) => saved.credentialId === credentialId);
+          if (failedAgent) setReconnectTargetId(failedAgent.id);
+        }
+      });
+    }
+  }
+
   function renameProject(name) {
     if (!conn.ownProject || conn.name) return;
     api(`/v1/projects/${conn.projectId}`, {
@@ -129,25 +195,25 @@ export default function ChatView({
 
   function addSuggestedTest({ label, expected }) {
     const card = { id: nextId(), kind: 'test', status: 'ready', title: label, expected };
-    onPatch(chat.id, (c) => ({
-      ...c,
-      title: c.titleSet ? c.title : label,
-      titleSet: true,
-      messages: [...c.messages, { id: nextId(), role: 'assistant', text: '', cards: [card] }],
-    }));
-    if (!chat.titleSet) renameProject(label);
+    setSelectedTest(card);
   }
 
-  async function send(text, context, { kind = 'chat', cardId = null } = {}) {
-    if (!conn || chat.streaming) return;
+  async function send(text, context, { kind = 'chat', runCard = null } = {}) {
+    if (!conn || !agentConnected || chat.streaming || aborter.current) return;
+    setSelectedTest(null);
+    setReconnectTargetId(undefined);
+    const cardId = runCard?.id ?? null;
+    const controller = new AbortController();
+    aborter.current = controller;
+    stickToBottom.current = true;
     setChatError('');
     const isRun = kind === 'run' || text.toLowerCase().startsWith('run test:');
     const msgKind = isRun ? 'run' : kind;
     const userMsg = { id: nextId(), role: 'user', text, kind: msgKind, cards: [] };
     const shell = { id: nextId(), role: 'assistant', text: '', cards: [] };
-    const nextTitle = kind === 'chat' && !chat.titleSet ? titleFor(text) : null;
+    const nextTitle = !chat.titleSet ? (runCard?.title || titleFor(text)) : null;
     onPatch(chat.id, (c) => {
-      const patch = { messages: [...c.messages, userMsg, shell], streaming: true };
+      const patch = { messages: appendTurn(c.messages, userMsg, shell, runCard), streaming: true };
       if (nextTitle && !c.titleSet) {
         patch.title = nextTitle;
         patch.titleSet = true;
@@ -161,11 +227,22 @@ export default function ChatView({
       .filter((m) => m.text)
       .slice(-20)
       .map((m) => ({ role: m.role, content: m.text }));
-    const acc = { text: '', cards: [] };
-    const controller = new AbortController();
-    aborter.current = controller;
-    const paint = () =>
-      patchMessages((m) => (m.id === shell.id ? { ...m, text: acc.text, cards: acc.cards } : m));
+    const acc = { text: '', cards: [], failed: false };
+    let frame = null;
+    const paint = () => {
+      frame = null;
+      const text = acc.text;
+      const cards = acc.cards;
+      acc.cards = [];
+      patchMessages((m) => (m.id === shell.id ? {
+        ...m,
+        text,
+        cards: [...m.cards, ...cards],
+      } : m));
+    };
+    const schedulePaint = () => {
+      if (frame === null) frame = requestAnimationFrame(paint);
+    };
 
     // A team connection lists its members; each runs on the key it connected with.
     const memberCredentials = Object.fromEntries(
@@ -185,7 +262,7 @@ export default function ChatView({
         (event, data) => {
           if (event === 'message.delta') {
             acc.text += data.text ?? '';
-            paint();
+            schedulePaint();
           } else if (event === 'step.started' || event === 'step.finished') {
             const note = data.step ?? data.label ?? (event === 'step.started' ? 'Working…' : 'Done');
             if (cardId) {
@@ -214,13 +291,15 @@ export default function ChatView({
                 }));
               } else {
                 acc.cards.push(card);
-                paint();
+                schedulePaint();
               }
             }
           } else if (event === 'error') {
+            reportCredentialFailure(data);
+            acc.failed = true;
             const streamMessage = data?.error?.message ?? data?.message ?? 'chat failed';
             acc.text += `\n\nError: ${streamMessage}`;
-            paint();
+            schedulePaint();
             setChatError(streamMessage);
           }
         },
@@ -228,34 +307,26 @@ export default function ChatView({
       );
     } catch (error) {
       if (error?.name !== 'AbortError') {
+        reportCredentialFailure(error);
+        acc.failed = true;
         const message =
           error?.code === 'evaluator_not_configured'
             ? 'No evaluator is configured on the backend, so this chat cannot run. Connect the evaluator service and retry.'
             : (error?.message ?? 'Chat failed.');
-        onPatch(chat.id, (c) => ({
-          ...c,
-          messages: c.messages.map((m) =>
-            m.id === shell.id ? { ...m, text: `${acc.text}\n\nError: ${message}`.trim() } : m,
-          ),
-        }));
+        acc.text = `${acc.text}\n\nError: ${message}`.trim();
         setChatError(message);
       }
     } finally {
+      if (frame !== null) cancelAnimationFrame(frame);
+      paint();
       aborter.current = null;
       onPatch(chat.id, (c) => {
         const out = { ...c, streaming: false };
-        if (kind === 'chat' && !c.messages.some((m) => m.cards.some((card) => card.kind === 'test'))) {
-          out.messages = [
-            ...c.messages,
-            {
-              id: nextId(),
-              role: 'assistant',
-              text: '',
-              cards: [
-                { id: nextId(), kind: 'test', status: 'ready', title: 'New test', expected: text },
-              ],
-            },
-          ];
+        if (kind === 'chat' && acc.text && !acc.failed && !controller.signal.aborted && !c.messages.some((m) => m.cards.some((card) => card.kind === 'test'))) {
+          out.messages = c.messages.map((m) => m.id === shell.id ? {
+            ...m,
+            cards: [...m.cards, { id: nextId(), kind: 'test', status: 'ready', title: 'New test', expected: text }],
+          } : m);
         }
         if (cardId) {
           out.messages = out.messages.map((m) => ({
@@ -279,6 +350,7 @@ export default function ChatView({
         kind: 'test',
         status: 'done',
         result: {
+          projectId: conn.projectId,
           verdict: payload.verdict ?? (payload.passed ? 'pass' : 'fail'),
           rule: payload.rule ?? payload.failure_type ?? '',
           expected: payload.expected ?? '',
@@ -305,20 +377,12 @@ export default function ChatView({
   }
 
   async function runTest(cardId, context) {
-    const card = chat.messages.flatMap((m) => m.cards).find((c) => c.id === cardId);
-    if (!card || card.status === 'running') return;
-    onPatch(chat.id, (c) => ({
-      ...c,
-      messages: c.messages.map((m) => ({
-        ...m,
-        cards: m.cards.map((old) =>
-          old.id === cardId ? { ...old, status: 'running', progress: 'Running test…' } : old,
-        ),
-      })),
-    }));
+    const card = selectedTest?.id === cardId ? selectedTest : chat.messages.flatMap((m) => m.cards).find((c) => c.id === cardId);
+    if (!card || card.status === 'running' || chat.streaming || aborter.current) return;
+    setSelectedTest(null);
     await send(`Run test: ${card.expected}`, context || card.context || '', {
       kind: 'run',
-      cardId,
+      runCard: card,
     });
   }
 
@@ -328,8 +392,10 @@ export default function ChatView({
     setFindingFix(card.id);
     try {
       const diagnosis = await proposeFix(resultId, conn.credentialId);
+      if (diagnosis.repairErrorCode) reportCredentialFailure({ code: diagnosis.repairErrorCode });
       onOpenReview({ diagnosisId: diagnosis.id, repairError: diagnosis.repairError });
     } catch (error) {
+      reportCredentialFailure(error);
       setChatError(error?.message ?? 'Could not start the fix flow.');
     } finally {
       setFindingFix(null);
@@ -337,17 +403,19 @@ export default function ChatView({
   }
 
   const added = new Set(chat.messages.flatMap((m) => m.cards).map((card) => card.expected));
-  const suggestions = conn && !chat.streaming ? (
+  const suggestions = conn && agentConnected && !chat.streaming && !hasUserMessage(chat.messages) ? (
     <>
       <SuggestedTests
         heading="Suggested tests"
         tests={SUGGESTED_TESTS.filter((test) => !added.has(test.expected)).slice(0, SUGGESTIONS_SHOWN)}
         onAdd={addSuggestedTest}
+        selected={selectedTest?.expected}
       />
       <SuggestedTests
         heading="Suggested tasks"
         tests={SUGGESTED_TASKS.filter((test) => !added.has(test.expected)).slice(0, SUGGESTIONS_SHOWN)}
         onAdd={addSuggestedTest}
+        selected={selectedTest?.expected}
       />
     </>
   ) : null;
@@ -356,11 +424,50 @@ export default function ChatView({
     <div className="chat">
       <header className="page-head">
         <h1 className="truncate">{chat.title}</h1>
-        <span className="muted truncate">
-          {conn ? `Agent: ${conn.name || conn.model}` : 'Not connected'}
-        </span>
+        {agents.length ? (
+          <select
+            className="chat-agent-select"
+            aria-label="Chat agent"
+            value={agent?.id ?? ''}
+            disabled={chat.streaming}
+            onChange={(e) => {
+              const next = agents.find((a) => a.id === e.target.value);
+              if (!next) return;
+              setSelectedTest(null);
+              setChatError('');
+              setReconnectTargetId(undefined);
+              onPatch(chat.id, (c) => ({
+                ...c,
+                agentId: next.id,
+                connectionDismissed: false,
+                connection: {
+                  name: next.name,
+                  projectId: next.projectId,
+                  versionId: next.versionId,
+                  credentialId: next.credentialId,
+                  endpoint: next.endpoint,
+                  model: next.model,
+                  memberProjectIds: next.memberProjectIds,
+                  ownProject: false,
+                },
+              }));
+            }}
+          >
+            {!agent ? <option value="">Select agent</option> : null}
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {(a.name || a.model || a.endpoint) + (isConnected(a, nowMs) ? '' : ' · Not connected')}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="muted truncate">Not connected</span>
+        )}
       </header>
-      <div className="chat-body" ref={scrollRef}>
+      <div className="chat-body" ref={scrollRef} onScroll={() => {
+        const el = scrollRef.current;
+        stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      }}>
         {!conn ? (
           <div className="chat-narrow">
             <h2 className="hero">Connect an agent to get started</h2>
@@ -369,9 +476,20 @@ export default function ChatView({
               Open Agent Manager
             </button>
           </div>
+        ) : !agentConnected && chat.messages.length === 0 ? (
+          <div className="chat-narrow">
+            <p className="connected-note">Not connected</p>
+            <h2 className="hero">Agent key expired</h2>
+            <p className="muted">
+              Reconnect this agent, or switch to a connected agent above.
+            </p>
+            <button type="button" className="btn-secondary btn-accent" onClick={reconnect}>
+              Reconnect agent
+            </button>
+          </div>
         ) : chat.messages.length === 0 ? (
           <div className="chat-narrow">
-            <p className="connected-note">Agent connected</p>
+            <p className="connected-note">Connected</p>
             <h2 className="hero">What should we test?</h2>
             <p className="muted">Describe expected behavior or paste a response that went wrong.</p>
             {suggestions}
@@ -380,13 +498,23 @@ export default function ChatView({
           <div className="chat-narrow messages">
             {chat.messages.map((m) =>
               m.role === 'user' ? (
-                <div key={m.id} className="bubble-user">
-                  {m.text}
-                </div>
+                <article key={m.id} className="message-row message-user" aria-label="Your message">
+                  <header className="message-head">
+                    <ChatAvatar user />
+                    <p className="message-label">You</p>
+                  </header>
+                  <div className="message-content">
+                    <div className="bubble-user">{m.text}</div>
+                  </div>
+                </article>
               ) : (
-                <div key={m.id} className="assistant-block">
-                  <p className="assistant-label">AgentLab</p>
-                  {m.text ? <p className="assistant-text">{m.text}</p> : null}
+                <article key={m.id} className="message-row assistant-block" aria-label="AgentLab response">
+                  <header className="message-head">
+                    <ChatAvatar thinking={m.id === thinkingMessageId} />
+                    <p className="message-label">AgentLab</p>
+                  </header>
+                  <div className="message-content">
+                  {m.text ? <ResponsePreview>{m.text}</ResponsePreview> : null}
                   {m.cards.map((card) =>
                     card.kind === 'test' ? (
                       <TestCard
@@ -395,25 +523,33 @@ export default function ChatView({
                         findingFix={findingFix === card.id}
                         onRun={runTest}
                         onViewEvidence={() =>
-                          onOpenEvidence({ runId: card.result?.runId ?? null, resultId: card.result?.resultId ?? null })
+                          onOpenEvidence({
+                            projectId: card.result?.projectId ?? conn?.projectId,
+                            runId: card.result?.runId ?? null,
+                            resultId: card.result?.resultId ?? null,
+                          })
                         }
                         onFindFix={() => findFix(card)}
+                        disabled={!agentConnected || chat.streaming}
+                        onRemove={card.status === 'ready' ? () => onPatch(chat.id, (c) => ({ ...c, messages: removeDraft(c.messages, card.id) })) : undefined}
                       />
                     ) : (
                       <div key={card.id} className="card info-card">
                         <p className="info-title">{card.title}</p>
-                        {card.text ? <p className="muted">{card.text}</p> : null}
+                        {card.text ? <ResponsePreview title={`Full ${card.title}`}>{card.text}</ResponsePreview> : null}
                       </div>
                     ),
                   )}
-                </div>
+                  {m.id === thinkingMessageId ? (
+                    <div className="thinking-indicator" role="status">
+                      <span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
+                      <span className="thinking-label">{m.text ? 'Responding…' : 'Thinking…'}</span>
+                    </div>
+                  ) : null}
+                  </div>
+                </article>
               ),
             )}
-            {chat.streaming ? (
-              <p className="muted" role="status">
-                Thinking…
-              </p>
-            ) : null}
             {suggestions}
           </div>
         )}
@@ -424,11 +560,7 @@ export default function ChatView({
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => {
-                  onPatch(chat.id, (c) => ({ ...c, connection: null }));
-                  setChatError('');
-                  onOpenAgentManager();
-                }}
+                onClick={reconnect}
               >
                 Reconnect
               </button>
@@ -437,9 +569,28 @@ export default function ChatView({
         ) : null}
       </div>
       <div className="chat-narrow composer-wrap">
+        {conn && !agentConnected && !chatError && chat.messages.length > 0 ? (
+          <div className="composer-connection-note" role="status">
+            <span>This agent needs to reconnect.</span>
+            <button type="button" className="link" onClick={reconnect}>Reconnect agent</button>
+          </div>
+        ) : null}
+        {selectedTest ? <TestCard
+          key={selectedTest.id}
+          card={selectedTest}
+          onRun={runTest}
+          onRemove={() => setSelectedTest(null)}
+          disabled={!conn || !agentConnected || chat.streaming}
+        /> : null}
         <Composer
-          disabled={!conn || chat.streaming}
-          placeholder={conn ? 'Ask a follow-up…' : 'Connect an agent in Agent Manager to begin'}
+          disabled={!conn || !agentConnected || chat.streaming}
+          placeholder={
+            !conn
+              ? 'Connect an agent in Agent Manager to begin'
+              : !agentConnected
+                ? 'Agent not connected'
+                : 'Ask a follow-up…'
+          }
           onSend={(text, context) => send(text, context)}
         />
       </div>
