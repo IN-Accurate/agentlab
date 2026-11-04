@@ -476,7 +476,14 @@ export default function App() {
   }
 
   function openReview(review) {
-    patchDash({ tab: 'improvements', review });
+    // The review belongs to the chat's agent, not whichever project the dashboard
+    // showed last; without this the Improvements tab waited forever.
+    patchDash({
+      tab: 'improvements',
+      review,
+      projectId:
+        getAgentForChat(agents, activeChat)?.projectId ?? activeChat?.connection?.projectId ?? dash.projectId,
+    });
     setView('dashboard');
   }
 

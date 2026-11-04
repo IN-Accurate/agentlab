@@ -141,3 +141,35 @@ describe('saved agent and chat state', () => {
     expect(streamChat).not.toHaveBeenCalled();
   });
 });
+
+describe('find a fix', () => {
+  it('opens the review on the chat agent’s project, not the dashboard’s last one', async () => {
+    const { proposeFix } = await import('./api.js');
+    const billing = { ...agent, id: 'billing', projectId: 'billing', name: 'Billing agent' };
+    const other = { ...agent, id: 'other', projectId: 'other', name: 'Other agent', isDefault: false };
+    const card = {
+      id: 'card', kind: 'test', status: 'done', title: 'New test', expected: 'Asks if it can help',
+      result: { verdict: 'fail', expected: 'Asks if it can help', actual: 'Done.', resultId: 'result-1', runId: 'run-1' },
+    };
+    const chat = draft('billing-chat', 'Billing chat', {
+      agentId: 'billing',
+      titleSet: true,
+      messages: [
+        { id: 'u', role: 'user', text: 'Run test: Asks if it can help', kind: 'run', cards: [] },
+        { id: 'a', role: 'assistant', text: '', cards: [card] },
+      ],
+    });
+    saveChats([chat], 'billing-chat', [billing, other]);
+    localStorage.setItem('agentlab.ui.v1', JSON.stringify({ view: 'chat', activeId: 'billing-chat', dash: { projectId: 'other', tab: 'overview' } }));
+    proposeFix.mockResolvedValue({ id: 'diagnosis-1' });
+    api.mockImplementation(async (path) => {
+      if (path === '/v1/projects/billing') return { id: 'billing', name: 'Billing agent' };
+      if (path === '/v1/projects/other') return { id: 'other', name: 'Other agent' };
+      return { items: [], versions: [] };
+    });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Find a fix' }));
+    const picker = await screen.findByRole('combobox', { name: 'Project' }, { timeout: 5000 });
+    expect(picker.value).toBe('billing');
+  });
+});
