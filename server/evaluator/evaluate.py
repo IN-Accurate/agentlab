@@ -416,9 +416,7 @@ async def run_chat_test(db, context, options, version, model, message):
     await db.flush()
     result_id, trace_id = await save_result(db, version.id, run.id, case, outcome)
     expected_display = (
-        case.get("expected", {}).get("behavior")
-        or case.get("input")
-        or behavior
+        case.get("expected", {}).get("behavior") or case.get("input") or behavior
     )
     return {
         "verdict": "pass" if outcome.passed else "fail",

@@ -29,7 +29,9 @@ async def delete_project(db, name):
 
 async def main():
     parser = argparse.ArgumentParser(description="Delete a project by name")
-    parser.add_argument("name", nargs="?", default="muse-spark-1.3", help="Project name to delete")
+    parser.add_argument(
+        "name", nargs="?", default="muse-spark-1.3", help="Project name to delete"
+    )
     args = parser.parse_args()
 
     if not os.environ.get("DATABASE_URL"):
@@ -38,11 +40,15 @@ async def main():
         if env_file.exists():
             for line in env_file.read_text(encoding="utf-8").splitlines():
                 if line.startswith("DATABASE_URL="):
-                    os.environ["DATABASE_URL"] = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    os.environ["DATABASE_URL"] = (
+                        line.split("=", 1)[1].strip().strip('"').strip("'")
+                    )
                     break
 
     if not os.environ.get("DATABASE_URL"):
-        print("Set DATABASE_URL explicitly or in .env to delete from database directly.")
+        print(
+            "Set DATABASE_URL explicitly or in .env to delete from database directly."
+        )
         return
 
     settings = Settings(_env_file=None)
@@ -56,4 +62,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
