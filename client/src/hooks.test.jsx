@@ -131,6 +131,77 @@ describe('useFetch integration', () => {
 });
 
 describe('run history pagination', () => {
+  it('keeps the loaded page and navigation history when equivalent versions are recreated', async () => {
+    const project = nextKey();
+    const versions = [{ version_id: `${project}-v1` }, { version_id: `${project}-v2` }];
+    const first = { id: `${project}-first`, app_version_id: versions[0].version_id };
+    const second = { id: `${project}-second`, app_version_id: versions[1].version_id };
+    api.mockImplementation((path) => {
+      const params = new URLSearchParams(path.split('?')[1]);
+      return Promise.resolve(params.get('cursor')
+        ? { items: [second], next_cursor: 'page-3' }
+        : { items: [first], next_cursor: 'page-2' });
+    });
+    const { result, rerender } = renderHook(
+      ({ versions }) => useRail(project, versions, 'all', 0),
+      { initialProps: { versions } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => result.current.more());
+    expect(result.current.page).toBe(2);
+
+    rerender({ versions: versions.map((version) => ({ ...version, name: 'Refreshed metadata' })) });
+
+    expect(result.current.page).toBe(2);
+    expect(result.current.items).toEqual([second]);
+    expect(result.current.cursor).toBe('page-3');
+    expect(result.current.allItems).toEqual([first, second]);
+    expect(api).toHaveBeenCalledTimes(2);
+    act(() => result.current.previous());
+    expect(result.current.page).toBe(1);
+    expect(result.current.items).toEqual([first]);
+    await act(async () => result.current.more());
+    expect(result.current.page).toBe(2);
+    expect(result.current.items).toEqual([second]);
+    expect(api).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps an in-flight page locked and accepts its result after equivalent versions are recreated', async () => {
+    const project = nextKey();
+    const versions = [{ version_id: `${project}-v` }];
+    const first = { id: `${project}-first`, app_version_id: versions[0].version_id };
+    const second = { id: `${project}-second`, app_version_id: versions[0].version_id };
+    const nextPage = deferred();
+    api.mockImplementation((path) => {
+      const params = new URLSearchParams(path.split('?')[1]);
+      return params.get('cursor')
+        ? nextPage.promise
+        : Promise.resolve({ items: [first], next_cursor: 'page-2' });
+    });
+    const { result, rerender } = renderHook(
+      ({ versions }) => useRail(project, versions, versions[0].version_id, 0),
+      { initialProps: { versions } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => { void result.current.more(); });
+    expect(result.current.loading).toBe(true);
+
+    rerender({ versions: versions.map((version) => ({ ...version })) });
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.page).toBe(1);
+    expect(result.current.items).toEqual([first]);
+    act(() => { result.current.more(); result.current.more(); });
+    expect(api).toHaveBeenCalledTimes(2);
+    await act(async () => nextPage.resolve({ items: [second], next_cursor: null }));
+    expect(result.current.page).toBe(2);
+    expect(result.current.items).toEqual([second]);
+    expect(result.current.allItems).toEqual([first, second]);
+    expect(result.current.cursor).toBeNull();
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
   it('ignores an old project page after switching and prevents duplicate page starts', async () => {
     const projectA = nextKey();
     const projectB = nextKey();

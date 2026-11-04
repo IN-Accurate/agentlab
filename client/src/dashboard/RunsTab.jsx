@@ -37,6 +37,7 @@ export function useRail(projectId, versions, versionFilter, nonce) {
   const paging = useRef(false);
   currentKey.current = key;
 
+  // The key includes every query input; equivalent version lists keep paging intact.
   useEffect(() => {
     const id = ++generation.current;
     paging.current = false;
@@ -54,7 +55,7 @@ export function useRail(projectId, versions, versionFilter, nonce) {
     return () => {
       generation.current += 1;
     };
-  }, [key, projectId, versionFilter, versionIds]);
+  }, [key]);
 
   const current = state.key === key ? state : railState(key);
 
