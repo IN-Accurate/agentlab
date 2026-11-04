@@ -389,3 +389,16 @@ async def test_unexpected_tool_shapes_are_tool_errors(config, arguments, route):
     span = tool_span(result)
     assert span["payload"]["error"]["kind"] == "tool_failed"
     assert result.output == "Sorry."
+
+
+def test_a_call_that_failed_at_run_time_still_counts_as_made():
+    from evaluator.evaluate import tool_notes
+
+    expected = {
+        "tool_calls": [{"name": "lookup_order", "arguments": {"order_id": "1"}}]
+    }
+    down = {"kind": "tool_http", "message": "Tool returned HTTP 500"}
+    call_made = {"name": "lookup_order", "arguments": {"order_id": "1"}, "error": down}
+    assert tool_notes(expected, [call_made]) == []
+    bad = {**call_made, "error": {"kind": "tool_arg", "message": "bad"}}
+    assert "Did not call lookup_order" in " ".join(tool_notes(expected, [bad]))

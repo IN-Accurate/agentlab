@@ -120,7 +120,10 @@ def tool_notes(expected, calls):
     forbidden = expected.get("forbidden_tools") or []
     if not required and not forbidden:
         return []
-    made = [call for call in calls if "error" not in call]
+    # A tool that fails at run time still counts as called; bad arguments do not.
+    made = [
+        call for call in calls if (call.get("error") or {}).get("kind") != "tool_arg"
+    ]
     notes = [
         f"Tool call was invalid: {call.get('name')} ({call['error'].get('message')})"
         for call in calls
