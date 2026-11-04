@@ -180,3 +180,11 @@ async def test_customized_policy_reaches_the_repair_as_the_business_rule():
     system, user = seen[0]["messages"]
     assert "business's own policy" in system["content"]
     assert json.loads(user["content"])["expected"] == expected
+
+
+def test_parse_reads_the_first_object_and_ignores_trailing_braces():
+    body = json.dumps({"policies": [policy("Refunds")]})
+    assert [p["title"] for p in parse(f"Here you go: {body} Note: {{x}}", 5)] == [
+        "Refunds"
+    ]
+    assert parse('{"policies": [', 5) == []

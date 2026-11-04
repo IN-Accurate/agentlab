@@ -159,11 +159,12 @@ def tool_definitions(config):
     ``result``, then, when ``simulate`` is set, a model playing the tool."""
     tools = {}
     for tool in config.get("tools") or []:
+        runs = None
         if tool.get("builtin") == "search":
             tool = {**SEARCH_TOOL, **{k: v for k, v in tool.items() if k != "builtin"}}
-            tool["runs"] = "search"
+            runs = "search"
         elif isinstance(tool.get("endpoint"), str):
-            tool = {**tool, "runs": "endpoint"}
+            runs = "endpoint"
         schema = tool.get("function", tool)
         if schema.get("name"):
             fields = ("name", "description", "parameters")
@@ -180,7 +181,7 @@ def tool_definitions(config):
                 "simulate": simulate
                 if isinstance(simulate, dict)
                 else ({} if simulate is True else None),
-                "runs": tool.get("runs"),
+                "runs": runs,
                 "endpoint": tool.get("endpoint"),
             }
     return tools
@@ -334,7 +335,14 @@ async def execute_tool(http, tool, payload):
             result = await fetch(
                 http, "POST", tool["endpoint"], json=payload["arguments"]
             )
-    except (AppError, httpx.HTTPError, ValueError) as exc:
+    except (
+        AppError,
+        httpx.HTTPError,
+        ValueError,
+        KeyError,
+        TypeError,
+        AttributeError,
+    ) as exc:
         if isinstance(exc, httpx.HTTPStatusError):
             kind, message = (
                 "tool_http",

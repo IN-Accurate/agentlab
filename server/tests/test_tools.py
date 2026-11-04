@@ -353,3 +353,39 @@ async def test_grounded_test_asks_the_judge_about_tool_results(verdict, passed):
     assert graded["tool_calls"][0]["result"]["courier"] == "Delhivery"
     if not passed:
         assert "Not grounded in tool results: Courier differs" in outcome.explanation
+
+
+def test_a_config_cannot_choose_how_a_tool_runs():
+    tools = tool_definitions(
+        {"tools": [{**LOOKUP, "runs": "search"}, {**LOOKUP, "name": "x", "runs": 1}]}
+    )
+    assert [t["runs"] for t in tools.values()] == [None, None]
+
+
+@pytest.mark.parametrize(
+    "config, arguments, route",
+    [
+        (
+            {"tools": [{"builtin": "search", "parameters": {"type": "object"}}]},
+            {},
+            wikipedia,
+        ),
+        (
+            {"tools": [{"builtin": "search"}]},
+            {"query": "Pune"},
+            lambda request: httpx.Response(200, json=["not", "an", "object"]),
+        ),
+    ],
+)
+async def test_unexpected_tool_shapes_are_tool_errors(config, arguments, route):
+    net = Network(
+        [
+            completion(tool_calls=[call("search", arguments)]),
+            completion("Sorry."),
+        ],
+        {"en.wikipedia.org": route},
+    )
+    result = await run_agent(net.client, config, "Search something")
+    span = tool_span(result)
+    assert span["payload"]["error"]["kind"] == "tool_failed"
+    assert result.output == "Sorry."

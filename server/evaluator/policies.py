@@ -1,5 +1,4 @@
 import json
-import re
 from uuid import UUID
 
 from sqlalchemy import select
@@ -36,9 +35,9 @@ def clean(item):
 
 
 def parse(text, count):
-    match = re.search(r"\{.*\}", text, re.S)
+    start = text.find("{")
     try:
-        data = json.loads(match.group()) if match else None
+        data = json.JSONDecoder().raw_decode(text, start)[0] if start >= 0 else None
     except ValueError:
         data = None
     items = data.get("policies") if isinstance(data, dict) else None
