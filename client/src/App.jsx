@@ -336,7 +336,7 @@ export default function App() {
   const testInNewChat = useCallback((testId, targetProjectId = null) => {
     const projId = targetProjectId || dash.projectId;
     const agent = agents.find((a) => a.projectId === projId);
-    const conn = agent ?? lastConnection ?? (projId ? { projectId: projId, ownProject: false } : null);
+    const conn = agent ?? getNewChatAgent(agents) ?? (projId ? { projectId: projId, ownProject: false } : null);
     const chat = {
       ...newChat(conn),
       title: `Run Test: ${shortId(testId)}`,
@@ -348,7 +348,7 @@ export default function App() {
     setView('chat');
     setMenuOpen(false);
     setToast(null);
-  }, [agents, dash.projectId, lastConnection]);
+  }, [agents, dash.projectId]);
 
   const patchDash = useCallback((patch) => {
     setDash((d) => ({ ...d, ...patch }));
