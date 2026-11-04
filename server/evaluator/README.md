@@ -57,7 +57,7 @@ A test can check tool use:
 
 `"grounded": true` catches agents that have tools but still guess. The test fails if no tool returned a result, or if the judge finds a claim the tool results do not support or that contradicts them. A correct answer from memory still fails, because nothing checked it.
 
-Each `tool_calls` entry needs a successful call with that name whose arguments include the given values. Calling a `forbidden_tools` entry fails the test. When a test has either key, any call to an unknown tool or with invalid arguments also fails it. The judge sees every tool call and its result when grading `behavior`.
+Each `tool_calls` entry needs a call with that name whose arguments include the given values. The call counts even if the tool then fails (an endpoint error or timeout), because the agent still chose the right tool; a call with invalid arguments does not count. Calling a `forbidden_tools` entry fails the test. When a test has either key, any call to an unknown tool or with invalid arguments also fails it. The judge sees every tool call and its result when grading `behavior`.
 
 ## Teams
 

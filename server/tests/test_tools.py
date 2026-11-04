@@ -402,3 +402,42 @@ def test_a_call_that_failed_at_run_time_still_counts_as_made():
     assert tool_notes(expected, [call_made]) == []
     bad = {**call_made, "error": {"kind": "tool_arg", "message": "bad"}}
     assert "Did not call lookup_order" in " ".join(tool_notes(expected, [bad]))
+
+
+async def test_a_slow_drip_endpoint_hits_the_total_deadline(monkeypatch):
+    import asyncio
+
+    import evaluator.agent
+
+    monkeypatch.setattr(evaluator.agent, "TOOL_TIMEOUT", 0.2)
+
+    class Drip(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            for _ in range(20):
+                await asyncio.sleep(0.05)
+                yield b" "
+
+    config = {"tools": [{**LOOKUP, "endpoint": "https://crm.example/orders"}]}
+    net = Network(
+        [
+            completion(tool_calls=[call("lookup_order", {"order_id": "KE-1"})]),
+            completion("Sorry, I could not check."),
+        ],
+        {"crm.example": lambda request: httpx.Response(200, stream=Drip())},
+    )
+    result = await run_agent(net.client, config, "Where is KE-1?")
+    assert tool_span(result)["payload"]["error"]["kind"] == "tool_timeout"
+
+
+async def test_a_malformed_endpoint_is_a_tool_error():
+    config = {"tools": [{**LOOKUP, "endpoint": "https://[::1"}]}
+    net = Network(
+        [
+            completion(tool_calls=[call("lookup_order", {"order_id": "KE-1"})]),
+            completion("Sorry."),
+        ],
+        {},
+    )
+    result = await run_agent(net.client, config, "Where is KE-1?")
+    assert tool_span(result)["payload"]["error"]["kind"] == "tool_failed"
+    assert result.output == "Sorry."

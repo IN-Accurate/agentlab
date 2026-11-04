@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from dataclasses import dataclass, field
@@ -262,15 +263,21 @@ async def read_json(response):
 
 
 async def fetch(http, method, url, **kwargs):
+    """TOOL_TIMEOUT bounds each read and, separately, the whole call, so a slow
+    drip of bytes cannot hold a run open."""
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
-    async with http.stream(
-        method, url, headers=headers, timeout=TOOL_TIMEOUT, **kwargs
-    ) as r:
-        body = await read_json(r)
-        if r.status_code >= 400:
-            raise httpx.HTTPStatusError(
-                f"HTTP {r.status_code}", request=r.request, response=r
-            )
+    try:
+        async with asyncio.timeout(TOOL_TIMEOUT):
+            async with http.stream(
+                method, url, headers=headers, timeout=TOOL_TIMEOUT, **kwargs
+            ) as r:
+                body = await read_json(r)
+                if r.status_code >= 400:
+                    raise httpx.HTTPStatusError(
+                        f"HTTP {r.status_code}", request=r.request, response=r
+                    )
+    except TimeoutError as exc:
+        raise httpx.ReadTimeout("Tool did not answer in time") from exc
     return body
 
 
@@ -338,6 +345,7 @@ async def execute_tool(http, tool, payload):
     except (
         AppError,
         httpx.HTTPError,
+        httpx.InvalidURL,
         ValueError,
         KeyError,
         TypeError,
