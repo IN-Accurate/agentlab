@@ -87,52 +87,81 @@ Trace ➔ Test ➔ Diagnose ➔ Confirm ➔ Repair ➔ Verify
 
 ### Prerequisites
 
-* Python 3.11+
-* Node 18+ (the `client/` app was built with Node 26 via `nvm`)
-* A Postgres database (Neon recommended). Use a **direct** connection string, not the pooler, for tests.
+* **Python 3.12** (the version CI and the Docker image use)
+* **Node.js 20+** (Tailwind CSS v4 needs 20 or newer)
+* **PostgreSQL 16**, either local or hosted (for example Neon). Use a **direct** connection string, not a pooler, for migrations and tests.
+* A **Meta Model API key** for Muse, or any OpenAI-compatible endpoint and key.
 
-### 1. Backend API
+### 1. Configure
 
 ```sh
-python3.11 -m venv .venv
-.venv/bin/pip install -r server/requirements.txt
-DATABASE_URL='<your-postgres-direct-URL>' .venv/bin/python -m uvicorn app.main:app --port 8000 --app-dir server
+cp .env.example .env
 ```
 
-For a new database, install the backend dependencies and run
-`DATABASE_URL='<your-postgres-direct-URL>' .venv/bin/python -m alembic -c server/alembic.ini upgrade head`
-before starting the API. For a database that already contains AgentLab data, follow the
-[baseline adoption instructions](server/migrations/README.md) instead of recreating its tables.
-The migration head includes the team `router` and `agent` span types. The adoption
-procedure also recognizes the team schema created before saved-key storage existed.
+Then edit `.env`:
 
-To save BYOK credentials across server restarts, generate a Fernet key once with
-`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
-and configure it as `APP_ENCRYPTION_KEY`. Keep the same secret for every worker and
-restart; changing or losing it makes existing saved keys unreadable. Credentials keep
-their existing expiry (two hours by default, up to one day) and can be revoked through
-the existing credential API. Without this setting, development retains temporary
-in-memory credentials. Run uvicorn with `--env-file .env` to load local settings.
+| Variable | What to set |
+| :--- | :--- |
+| `DATABASE_URL`, `DATABASE_URL_DIRECT` | Your Postgres URLs, e.g. `postgresql://USER@localhost:5432/agentlab` locally |
+| `APP_ENCRYPTION_KEY` | A Fernet key, so saved API keys survive restarts. Generate once with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` and keep it secret and unchanged |
+| `META_API_KEY`, `META_BASE_URL`, `META_MODEL` | Your Meta key, `https://api.meta.ai/v1`, and `muse-wonder-1.0` (the "Default Meta key" option in the app) |
+| `AGENTLAB_UNAUTHENTICATED_DEFAULT_KEY` | `true` for local development only; it lets localhost use the default key without `AGENTLAB_API_KEY` |
 
-Verify: `curl localhost:8000/health` → `{"status":"ok"}`. Interactive docs at http://localhost:8000/docs (note: `/` itself is a 404 — the API lives under `/v1`).
+Never commit `.env`; it is git-ignored.
 
-### 2. Frontend
+### 2. Backend API and evaluator
+
+```sh
+python3.12 -m venv .venv
+.venv/bin/pip install -r server/requirements.txt
+
+cd server
+set -a; . ../.env; set +a                     # settings are read from the environment
+../.venv/bin/python -m alembic upgrade head   # create or update the schema
+../.venv/bin/uvicorn evaluator.asgi:app --port 8000
+```
+
+`evaluator.asgi:app` is the API with the evaluator attached, which is what chat, test runs, diagnosis and repair need; `app.main:app` alone answers those with `503 evaluator_not_configured`. For a database that already contains AgentLab data, follow the [baseline adoption instructions](server/migrations/README.md) instead of recreating its tables. Credentials keep their expiry (two hours by default, up to one day) and can be revoked through the credential API.
+
+Verify: `curl localhost:8000/health` → `{"status":"ok"}`. Interactive docs at http://localhost:8000/docs (`/` is a 404; the API lives under `/v1`).
+
+### 3. Frontend
 
 ```sh
 cd client
-npm install
+npm ci
 npm run dev
 ```
 
-Open http://localhost:5173. The dev server proxies API calls to the backend on `:8000`, so keep both running. See [client/frontend_README.md](client/frontend_README.md) for build config and details.
+Open http://localhost:5173. The dev server proxies `/v1` to the backend on `:8000`, so keep both running. See [client/frontend_README.md](client/frontend_README.md) for details.
 
-### 3. Tests (backend)
+### 4. Production build
 
 ```sh
-TEST_DATABASE_URL='<your-test-db-URL (name must contain "test")>' .venv/bin/python -m pytest server/tests -q
+# Frontend: static files in client/dist/
+cd client
+VITE_API_URL=https://your-api.example.com npm run build   # leave VITE_API_URL empty to serve the API from the same origin
+npm run preview                                            # optional local check of the build
+
+# Backend: the same image CI builds
+docker build -t agentlab-api server
+docker run --env-file .env -p 8000:8000 agentlab-api
 ```
 
-Each test builds a fresh schema from `db/agentlab_schema.sql` inside that database and drops it afterwards. Chat/test-run flows additionally require an evaluator configured on the backend; without one those endpoints return `503` with an explicit error code.
+Run the migrations against the production database before starting the container. Use a single API worker: jobs and in-memory credentials are per process.
+
+### 5. Tests and checks
+
+```sh
+# Server: lint, format and tests (the database name must contain "test")
+.venv/bin/ruff check server && .venv/bin/ruff format --check server
+cd server && TEST_DATABASE_URL='postgresql://USER@localhost:5432/agentlab_test' ../.venv/bin/python -m pytest -q
+
+# Client: unit tests (node --test) and UI tests (Vitest), then a build
+cd client && npm test && npm run build
+```
+
+Each server test builds a fresh schema inside the test database and drops it afterwards. CI (GitHub Actions) runs the server checks on Postgres 16 and builds the Docker image.
 
 ---
 
@@ -178,3 +207,11 @@ The demo video follows this flow on the real app, live on `muse-wonder-1.0`:
 * **Ecosystem & Stack:** Meta's Muse (`muse-wonder-1.0` and Muse Spark) via the Meta Model API; Llama via OpenAI-compatible endpoints; optional OpenRouter model access. Model endpoints and IDs are configurable.
 * **Observability & RAG:** AgentLab's own persisted traces and spans for model calls, tools, retrieval, and validation; keyword-ranked knowledge-base retrieval with metadata filters; Wikipedia search via the MediaWiki API; Server-Sent Events for chat and job progress.
 * **Testing & Guardrails:** pytest, pytest-asyncio, Node.js's built-in test runner, Vitest, React Testing Library, JSON Schema validation (jsonschema), deterministic assertions, LLM judges, rule-based diagnosis, and baseline/candidate regression verification. PurpleLlama (Llama Guard, Prompt Guard) and Llama Stack are design references, not integrated runtime dependencies.
+
+---
+
+## Contributing and License
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow and the checks a pull request needs.
+
+AgentLab is released under the [MIT License](LICENSE).
