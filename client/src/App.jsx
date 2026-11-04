@@ -26,7 +26,7 @@ import {
 } from './chatGroups.js';
 import { loadUi, saveUi } from './uiState.js';
 import LogoMark from './LogoMark.jsx';
-import { Spinner } from './ui.jsx';
+import { Spinner, Toast, shortId } from './ui.jsx';
 import { api } from './api.js';
 
 const loadChatView = () => import('./chat/ChatView.jsx');
@@ -326,6 +326,29 @@ export default function App() {
     agents.find((a) => a.projectId === dash.projectId)?.credentialId ??
     chats.find((c) => c.connection?.projectId === dash.projectId)?.connection
       ?.credentialId ?? null;
+
+  const [toast, setToast] = useState(null);
+
+  const showToast = useCallback((toastData) => {
+    setToast({ id: Date.now(), ...toastData });
+  }, []);
+
+  const testInNewChat = useCallback((testId, targetProjectId = null) => {
+    const projId = targetProjectId || dash.projectId;
+    const agent = agents.find((a) => a.projectId === projId);
+    const conn = agent ?? lastConnection ?? (projId ? { projectId: projId, ownProject: false } : null);
+    const chat = {
+      ...newChat(conn),
+      title: `Run Test: ${shortId(testId)}`,
+      titleSet: true,
+      pendingRunMessage: `Run Test: ${testId}`,
+    };
+    setChats((cs) => [chat, ...cs]);
+    setActiveId(chat.id);
+    setView('chat');
+    setMenuOpen(false);
+    setToast(null);
+  }, [agents, dash.projectId, lastConnection]);
 
   const patchDash = useCallback((patch) => {
     setDash((d) => ({ ...d, ...patch }));
@@ -731,11 +754,18 @@ export default function App() {
             patchDash={patchDash}
             chatCredentialId={chatCredentialId}
             onContinueInChat={continueInChat}
+            showToast={showToast}
+            onTestInNewChat={testInNewChat}
             onOpenAgentManager={openAgentManager}
           />
         )}
         </Suspense>
       </main>
+      {toast ? (
+        <div className="toast-container">
+          <Toast toast={toast} onClose={() => setToast(null)} />
+        </div>
+      ) : null}
     </div>
   );
 }

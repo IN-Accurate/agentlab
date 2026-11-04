@@ -161,6 +161,23 @@ async def from_trace(
             "Trace-derived tests preserve the original input",
             422,
         )
+    existing = await db.scalar(
+        select(TestCase)
+        .where(
+            TestCase.project_id == id,
+            TestCase.source_trace_id == trace.id,
+            TestCase.archived_at.is_(None),
+        )
+        .limit(1)
+    )
+    if existing:
+        if data:
+            if data.expected is not None:
+                existing.expected = data.expected
+            if data.split:
+                existing.split = data.split
+            await db.flush()
+        return record(existing)
     row = TestCase(
         project_id=id,
         source_trace_id=trace.id,

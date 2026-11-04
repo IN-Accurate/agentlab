@@ -37,7 +37,7 @@ function fmtLatency(ms) {
 async function projectRepairs(projectId) {
   const all = [];
   let cursor = null;
-  for (;;) {
+  for (; ;) {
     const params = new URLSearchParams({ limit: '100', project_id: projectId });
     if (cursor) params.set('cursor', cursor);
     const page = await api(`/v1/repairs?${params}`);
@@ -58,7 +58,6 @@ async function projectRepairs(projectId) {
 
 async function loadChain(projectId, review) {
   const repairs = await projectRepairs(projectId);
-  if (!repairs.length) return { repairs, chain: null };
   let picked = null;
   if (review?.repairId) picked = repairs.find((r) => r.repair.id === review.repairId) ?? null;
   if (!picked && review?.diagnosisId)
@@ -70,9 +69,34 @@ async function loadChain(projectId, review) {
       return { repairs, chain: await finishChain(picked, verification, verification) };
     }
   }
-  // A requested diagnosis with no repair must not fall back to an unrelated one.
-  if (!picked && review?.diagnosisId) return { repairs, chain: null };
+  // When review specifies a diagnosisId that doesn't have a repair yet:
+  if (!picked && review?.diagnosisId) {
+    try {
+      const diagnosis = await api(`/v1/diagnoses/${review.diagnosisId}`);
+      let trace = null;
+      if (diagnosis?.trace_id) {
+        trace = await api(`/v1/traces/${diagnosis.trace_id}`).catch(() => null);
+      }
+      return {
+        repairs,
+        chain: {
+          diagnosis,
+          trace,
+          repair: null,
+          verification: null,
+          scorecard: null,
+          candidate: null,
+          baselineId: null,
+          diff: null,
+          lineage: { items: [] },
+        },
+      };
+    } catch {
+      return { repairs, chain: null };
+    }
+  }
   picked ??= repairs[0];
+  if (!picked) return { repairs, chain: null };
   const scored = await api(`/v1/verifications?repair_id=${picked.repair.id}&limit=50`);
   const verification = [...(scored.items ?? [])].sort((a, b) =>
     String(a.created_at) < String(b.created_at) ? 1 : -1,
@@ -145,14 +169,36 @@ export default function ImprovementsTab({
       </>
     );
 
-  const { diagnosis, repair, verification, scorecard, candidate, baselineId, diff, lineage } = chain;
-  const candLabel = labels[candidate.id] ?? shortId(candidate.id);
+  const { diagnosis, trace, repair, verification, scorecard, candidate, baselineId, diff, lineage } = chain;
+  const candLabel = candidate ? (labels[candidate.id] ?? shortId(candidate.id)) : 'Pending';
   const baseLabel = (baselineId && labels[baselineId]) || 'v?';
   const replay = diagnosis.evidence?.replay ?? null;
   const changes = diff ? diffConfigs(diff.before, diff.after) : { removed: [], added: [], changed: [] };
 
+  const [proposingRepair, setProposingRepair] = useState(false);
+  const [repairActionError, setRepairActionError] = useState('');
+
+  async function proposeRepairFromDiagnosis() {
+    if (proposingRepair || !diagnosis?.id) return;
+    setProposingRepair(true);
+    setRepairActionError('');
+    try {
+      const body = chatCredentialId ? { credential_id: chatCredentialId } : {};
+      const rep = await api(`/v1/diagnoses/${diagnosis.id}/repairs`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      patchDash({ review: { repairId: rep.id } });
+      loaded.reload();
+    } catch (e) {
+      setRepairActionError(e?.message ?? 'Could not propose repair.');
+    } finally {
+      setProposingRepair(false);
+    }
+  }
+
   async function verify() {
-    if (verifying) return;
+    if (verifying || !repair?.id) return;
     setVerifying(true);
     setActionError('');
     try {
@@ -172,6 +218,123 @@ export default function ImprovementsTab({
     } finally {
       setVerifying(false);
     }
+  }
+
+  if (!repair) {
+    return (
+      <div className="improvements">
+        {repairError}
+        <h2>Diagnosis review</h2>
+        <p className="muted">Review the root cause diagnosis and generate a candidate repair patch.</p>
+        <div className="section-head">
+          <h3>
+            Diagnosis · {diagnosis.rule}
+            {diagnosis.trace_id ? (
+              <span className="muted"> (trace tr_{shortId(diagnosis.trace_id)})</span>
+            ) : null}
+          </h3>
+          <span>
+            <span className="verdict neutral">Pending repair</span>
+          </span>
+        </div>
+        {repairs.length ? (
+          <div className="card accent-card">
+            <label className="muted">
+              Review other repairs{' '}
+              <select
+                value=""
+                onChange={(e) => patchDash({ review: { repairId: e.target.value } })}
+              >
+                <option value="" disabled>Viewing current diagnosis</option>
+                {repairs.map(({ repair: r, diagnosis: d }) => (
+                  <option key={r.id} value={r.id}>
+                    {r.patch_type} · {d.rule} · {shortId(r.id)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
+        <ol className="progression">
+          <li>
+            <strong>1 Diagnose</strong>
+            <span className="good-text">
+              {diagnosis.rule}
+              {diagnosis.confidence !== null && diagnosis.confidence !== undefined
+                ? ` · ${Number(diagnosis.confidence).toFixed(2)} confidence`
+                : ''}
+            </span>
+          </li>
+          <li>
+            <strong>2 Replay</strong>
+            <span className="muted">
+              {replay
+                ? `${replay.changed_variable ?? 'variable'} · outcome ${replay.outcome_flipped ? 'flipped' : 'held'}`
+                : 'Replay not recorded'}
+            </span>
+          </li>
+          <li>
+            <strong>3 Repair</strong>
+            <span className="muted">Pending repair proposal</span>
+          </li>
+          <li>
+            <strong>4 Verify</strong>
+            <span className="muted">Awaiting candidate patch</span>
+          </li>
+        </ol>
+
+        <div className="card">
+          <div className="section-head">
+            <h3>Diagnostic findings</h3>
+            <span className="muted">
+              Confidence {diagnosis.confidence !== null && diagnosis.confidence !== undefined ? `${(Number(diagnosis.confidence) * 100).toFixed(0)}%` : '—'}
+            </span>
+          </div>
+          {diagnosis.evidence?.rationale ? (
+            <p>{diagnosis.evidence.rationale}</p>
+          ) : (
+            <p className="muted">Classification rule: {diagnosis.rule}</p>
+          )}
+          {diagnosis.evidence?.suggested_rule ? (
+            <p className="muted">Suggested rule: {diagnosis.evidence.suggested_rule}</p>
+          ) : null}
+          {diagnosis.evidence?.errors?.length ? (
+            <div>
+              <p className="metric-label bad-text">Errors</p>
+              <ul className="bad-text">
+                {diagnosis.evidence.errors.map((err, i) => (
+                  <li key={i}>{String(err)}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {trace ? (
+            <div style={{ marginTop: '16px' }}>
+              <p className="metric-label">Trace input</p>
+              <p>{trace.input ?? '—'}</p>
+              <p className="metric-label">Trace output</p>
+              <p className={trace.status === 'ok' ? '' : 'bad-text'}>{trace.output ?? '—'}</p>
+            </div>
+          ) : null}
+
+          <div style={{ marginTop: '20px' }}>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={proposingRepair}
+              onClick={proposeRepairFromDiagnosis}
+            >
+              {proposingRepair ? 'Proposing repair…' : 'Propose repair →'}
+            </button>
+            {repairActionError ? (
+              <p className="field-error" style={{ marginTop: '8px' }}>
+                {repairActionError}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -234,9 +397,8 @@ export default function ImprovementsTab({
           <strong>4 Verify</strong>
           <span className="muted">
             {verification
-              ? `Target ${verification.target_passed ? 'passed' : 'failed'} · holdout ${
-                  verification.holdout_passed ? 'passed' : 'failed'
-                }`
+              ? `Target ${verification.target_passed ? 'passed' : 'failed'} · holdout ${verification.holdout_passed ? 'passed' : 'failed'
+              }`
               : 'Not run yet'}
           </span>
         </li>
