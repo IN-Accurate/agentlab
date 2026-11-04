@@ -1,6 +1,7 @@
+import asyncio
 import json
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -30,6 +31,7 @@ from evaluator.agent import (
 )
 from evaluator.diagnosis import Facts, classify, judge
 from evaluator.evaluate import (
+    CASE_CONCURRENCY,
     draft_input,
     evaluate_case,
     latest_version,
@@ -462,6 +464,69 @@ async def run_job(http, p, v, c, **extra):
     body = {"version_id": v, "credential_id": c, **extra}
     job = (await http.post(f"/v1/projects/{p}/runs", json=body)).json()
     return (await http.get(f"/v1/jobs/{job['job_id']}")).json()
+
+
+async def test_run_evaluates_cases_concurrently_up_to_the_limit(api, monkeypatch):
+    http, app = api
+    flight = {"now": 0, "max": 0}
+
+    async def handler(request):
+        body = json.loads(request.content)
+        if "grade" in body["messages"][0]["content"]:
+            return completion(json.dumps({"passed": True, "rationale": "ok"}))
+        flight["now"] += 1
+        flight["max"] = max(flight["max"], flight["now"])
+        await asyncio.sleep(0.05)
+        flight["now"] -= 1
+        return completion("Refunds within 30 days.")
+
+    p, v, c = await setup(http, app, monkeypatch, handler)
+    for n in range(6):
+        await http.post(
+            f"/v1/projects/{p}/test-cases",
+            json={"input": f"q{n}", "expected": {"reference": "30 days"}},
+        )
+    job = await run_job(http, p, v, c)
+    assert job["status"] == "completed"
+    assert job["result"]["evaluated_cases"] == 6 and job["result"]["passed"] == 6
+    assert flight["max"] == CASE_CONCURRENCY
+
+
+async def test_a_cases_judge_checks_run_together_and_keep_their_order():
+    flight = {"now": 0, "max": 0}
+
+    async def judge(request):
+        content = json.loads(request.content)["messages"][1]["content"]
+        flight["now"] += 1
+        flight["max"] = max(flight["max"], flight["now"])
+        await asyncio.sleep(0.05)
+        flight["now"] -= 1
+        # Later checks answer first, so order must come from the code, not timing.
+        if "relies only on the business policy" in content:
+            await asyncio.sleep(0.05)
+            return completion(json.dumps({"passed": False, "rationale": "P"}))
+        if "Mentions refunds" in content:
+            return completion(json.dumps({"passed": False, "rationale": "B"}))
+        return completion(json.dumps({"passed": False, "rationale": "A"}))
+
+    def client(handler):
+        transport = httpx.MockTransport(handler)
+        return ModelClient(
+            httpx.AsyncClient(transport=transport), "k", "https://m.example/v1", "m"
+        )
+
+    agent = client(lambda request: completion("Maybe"))
+    case = {
+        "input": "Refund?",
+        "expected": {"behavior": "Mentions refunds", "context": "30 days"},
+        "assertions": [
+            {"id": str(uuid4()), "kind": "judge", "spec": "States a refund window"},
+            {"id": str(uuid4()), "kind": "judge", "spec": "Is polite"},
+        ],
+    }
+    outcome = await evaluate_case(agent, client(judge), {}, case)
+    assert flight["max"] == 4
+    assert outcome.explanation == "Went beyond the given policy: P; B; A; A"
 
 
 async def test_run_grades_cases_and_saves_each_result(api, monkeypatch):

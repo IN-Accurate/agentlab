@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { useFetch } from '../hooks.js';
-import { Empty, ErrorBox, Modal, Spinner, fmtPct, fmtTime, shortId } from '../ui.jsx';
+import { Empty, ErrorBox, Spinner, fmtPct, fmtTime, shortId } from '../ui.jsx';
+import { Modal } from '../modal.jsx';
 import { useTraceRequests } from './useTraceRequests.js';
 import './traceRequests.css';
 import TraceWaterfall from './TraceWaterfall.jsx';

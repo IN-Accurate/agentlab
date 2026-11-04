@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { api } from '../api.js';
-import { Field, Modal, Spinner } from '../ui.jsx';
+import { Field, Spinner } from '../ui.jsx';
+import { Modal } from '../modal.jsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';

@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { Modal } from '../ui.jsx';
+import { Modal } from '../modal.jsx';
 import Markdown from './Markdown.jsx';
 import { remarkResponsePreview, responseExcerpt } from './responsePreview.js';
 import './responsePreview.css';

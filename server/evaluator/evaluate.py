@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from dataclasses import dataclass, field
@@ -27,6 +28,9 @@ GROUNDED = (
     "It invents nothing the tools did not return and contradicts none of it."
 )
 NO_TOOL_RESULT = "Answered without using any tool result"
+# Test cases evaluated at once in a run: enough to hide model latency, few enough
+# to stay clear of provider rate limits (429s are retried with backoff anyway).
+CASE_CONCURRENCY = 4
 CONTEXT_ONLY = (
     "The output relies only on the business policy and context given and on any tool "
     "results: it adds no facts, numbers, limits or promises they do not support. "
@@ -178,42 +182,39 @@ async def evaluate_case(model, grader, config, case, params=None, team=None):
         if reference and str(reference).lower() not in result.output.lower():
             notes.append(f"Answer does not contain: {reference}")
         notes += tool_notes(expected, calls)
-        if expected.get("grounded"):
+        if expected.get("grounded") and not any("result" in call for call in calls):
             # Tool access is no guarantee: agents still skip the tool or ignore it.
-            if not any("result" in call for call in calls):
-                notes.append(NO_TOOL_RESULT)
-            else:
-                grounded, why = await grade(
-                    grader, query, result.output, GROUNDED, None, calls
-                )
-                if not grounded:
-                    notes.append(f"Not grounded in tool results: {why}")
+            notes.append(NO_TOOL_RESULT)
+    # The judge's checks are independent, so they run together; their notes keep
+    # the order below whatever order they finish in.
+    output = result.output
+    checks = {}
+    if not reason:
+        if expected.get("grounded") and any("result" in call for call in calls):
+            checks["grounded"] = grade(grader, query, output, GROUNDED, None, calls)
         if isinstance(policy, str) and policy.strip():
             # The agent was told to answer from the policy only; check that it did.
-            within, why = await grade(
-                grader, query, result.output, CONTEXT_ONLY, policy, calls
+            checks["policy"] = grade(grader, query, output, CONTEXT_ONLY, policy, calls)
+        if expected.get("behavior"):
+            checks["behavior"] = grade(
+                grader, query, output, expected["behavior"], policy, calls
             )
-            if not within:
-                notes.append(f"Went beyond the given policy: {why}")
+        for index, assertion in enumerate(case.get("assertions") or []):
+            checks[("assertion", index)] = grade_assertion(
+                grader, query, output, assertion
+            )
+    verdicts = dict(zip(checks, await asyncio.gather(*checks.values())))
+    if "grounded" in verdicts and not verdicts["grounded"][0]:
+        notes.append(f"Not grounded in tool results: {verdicts['grounded'][1]}")
+    if "policy" in verdicts and not verdicts["policy"][0]:
+        notes.append(f"Went beyond the given policy: {verdicts['policy'][1]}")
     explanation = ""
-    if expected.get("behavior") and not reason:
-        passed, explanation = await grade(
-            grader,
-            query,
-            result.output,
-            expected["behavior"],
-            expected.get("context"),
-            calls,
-        )
+    if "behavior" in verdicts:
+        passed, explanation = verdicts["behavior"]
         if not passed:
             notes.append(explanation)
-    for assertion in case.get("assertions") or []:
-        if reason:
-            passed, evidence = False, reason
-        else:
-            passed, evidence = await grade_assertion(
-                grader, query, result.output, assertion
-            )
+    for index, assertion in enumerate(case.get("assertions") or []):
+        passed, evidence = verdicts.get(("assertion", index), (False, reason))
         outcome.assertions.append((assertion["id"], passed, {"reason": evidence}))
         if not passed:
             notes.append(evidence)
@@ -261,14 +262,27 @@ async def run_version(context, options, version, cases, params, progress=None):
         db.add(run)
         await db.flush()
         run_id = run.id
+    # Cases are independent model calls, so a few run at once; results are still
+    # saved and reported in case order.
+    limit = asyncio.Semaphore(CASE_CONCURRENCY)
+
+    async def evaluate(case):
+        async with limit:
+            return await evaluate_case(model, grader, config, case, params, team)
+
+    tasks = [asyncio.create_task(evaluate(case)) for case in cases]
     results = {}
-    for index, case in enumerate(cases, start=1):
-        outcome = await evaluate_case(model, grader, config, case, params, team)
-        async with context["session_factory"]() as db, db.begin():
-            await save_result(db, version_id, run_id, case, outcome)
-        results[str(case["id"])] = outcome.passed
-        if progress:
-            await progress(index / len(cases))
+    try:
+        for index, (case, task) in enumerate(zip(cases, tasks), start=1):
+            outcome = await task
+            async with context["session_factory"]() as db, db.begin():
+                await save_result(db, version_id, run_id, case, outcome)
+            results[str(case["id"])] = outcome.passed
+            if progress:
+                await progress(index / len(cases))
+    finally:
+        for task in tasks:
+            task.cancel()
     return run_id, results
 
 
