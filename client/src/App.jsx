@@ -1,7 +1,24 @@
 import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { dedupeConnections, upsertAgent } from './agents.js';
+import {
+  DEFAULT_DONE_NOTE,
+  addAgent,
+  getDefaultAgent,
+  getNewChatAgent,
+  isConnected,
+  loadAgentStore,
+  removeAgent,
+  repointChats,
+  saveAgentStore,
+  setDefault,
+} from './agentStore.js';
 import { trimChatsForPersist } from './chatStorage.js';
-import { RECENT_LIMIT, chatCreatedAt, groupChats, visibleChats } from './chatGroups.js';
+import {
+  RECENT_LIMIT,
+  chatAgentId,
+  chatCreatedAt,
+  groupChats,
+  visibleChats,
+} from './chatGroups.js';
 import { loadUi, saveUi } from './uiState.js';
 import LogoMark from './LogoMark.jsx';
 import { Spinner } from './ui.jsx';
@@ -12,7 +29,6 @@ const DashboardView = lazy(() => import('./dashboard/DashboardView.jsx'));
 
 const STORE_KEY = 'agentlab.chats.v1';
 const OLD_STORE_KEY = 'testlab.chats.v1';
-const AGENTS_KEY = 'agentlab.agents.v1';
 const THEME_KEY = 'agentlab.theme';
 const GROUP_KEY = 'agentlab.chatGroup';
 const THEME_OPTIONS = ['light', 'dark', 'system'];
@@ -56,6 +72,7 @@ function loadChats() {
     return JSON.parse(raw).map((c) => ({
       ...c,
       createdAt: chatCreatedAt(c),
+      agentId: chatAgentId(c),
       streaming: false,
       messages: (c.messages ?? []).map((m) => ({
         ...m,
@@ -64,23 +81,6 @@ function loadChats() {
         ),
       })),
     }));
-  } catch {
-    return [];
-  }
-}
-
-function loadAgents() {
-  try {
-    const raw = localStorage.getItem(AGENTS_KEY);
-    if (raw) return dedupeConnections(JSON.parse(raw));
-  } catch {
-    return [];
-  }
-  // Backfill once for profiles stored before agents had their own key.
-  try {
-    const chatsRaw = localStorage.getItem(STORE_KEY) ?? localStorage.getItem(OLD_STORE_KEY);
-    if (!chatsRaw) return [];
-    return dedupeConnections(JSON.parse(chatsRaw).map((c) => c.connection));
   } catch {
     return [];
   }
@@ -156,7 +156,18 @@ function newChat(connection) {
     createdAt: Date.now(),
     title: 'New chat',
     titleSet: false,
-    connection: connection ? { ...connection, ownProject: false } : null,
+    connection: connection
+      ? {
+          name: connection.name,
+          projectId: connection.projectId,
+          versionId: connection.versionId,
+          credentialId: connection.credentialId,
+          endpoint: connection.endpoint,
+          model: connection.model,
+          ownProject: false,
+        }
+      : null,
+    agentId: connection?.projectId ?? null,
     messages: [],
     streaming: false,
   };
@@ -168,8 +179,9 @@ export default function App() {
     return loaded.length ? loaded : [newChat(null)];
   });
   // One entry per project, newest first; each keeps the key it connected with.
-  const [agents, setAgents] = useState(loadAgents);
+  const [agents, setAgents] = useState(() => loadAgentStore(localStorage));
   const [savedUi] = useState(loadUi);
+  const [connectNotice, setConnectNotice] = useState(null);
   const [activeId, setActiveId] = useState(savedUi.activeId);
   const [view, setView] = useState(savedUi.view);
   const [dash, setDash] = useState(savedUi.dash);
@@ -208,16 +220,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(AGENTS_KEY, JSON.stringify(agents));
-    } catch {
-      // Private browsing: connections last for this tab only.
-    }
+    saveAgentStore(localStorage, agents);
   }, [agents]);
 
   useEffect(() => {
     saveUi({ view, activeId, dash });
   }, [view, activeId, dash]);
+
+  useEffect(() => {
+    if (view !== 'agents') setConnectNotice(null);
+  }, [view]);
 
   useEffect(() => {
     try {
@@ -243,8 +255,15 @@ export default function App() {
     return () => media.removeEventListener('change', apply);
   }, [theme]);
 
+  // Ticks so key expiry flips status labels without a refresh.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const activeChat = (activeId && chats.find((c) => c.id === activeId)) || chats[0] || null;
-  const lastConnection = agents[0] ?? null;
+  const connectedAgents = agents.filter((a) => isConnected(a, nowMs));
   const agentKeys = Object.fromEntries(agents.map((a) => [a.projectId, a.credentialId]));
   const chatCredentialId =
     chats.find((c) => c.connection?.projectId === dash.projectId)?.connection
@@ -261,9 +280,8 @@ export default function App() {
     setPendingDelete(null);
   }, []);
 
-  function createChat(connection) {
-    const conn = connection?.projectId ? connection : lastConnection;
-    const chat = newChat(conn);
+  function createChat(connection = getNewChatAgent(agents)) {
+    const chat = newChat(connection);
     setChats((cs) => [chat, ...cs]);
     setActiveId(chat.id);
     setView('chat');
@@ -297,13 +315,24 @@ export default function App() {
     setMenuOpen(false);
   }
 
-  function connectAgent(connection) {
-    setAgents((as) => upsertAgent(as, connection));
+  function connectAgent(connection, opts = {}) {
+    const wasFirst = agents.length === 0;
+    setAgents((as) => {
+      const added = addAgent(as, connection);
+      return opts.setAsDefault ? setDefault(added, connection.projectId) : added;
+    });
+    setConnectNotice(wasFirst ? `Connected. ${DEFAULT_DONE_NOTE}` : 'Connected.');
     const chat = activeChat && !activeChat.connection ? activeChat : newChat(null);
     setChats((cs) => [
-      { ...chat, connection },
+      { ...chat, connection, agentId: connection.projectId },
       ...cs.filter((c) => c.id !== chat.id).map((c) =>
-        c.connection ? c : { ...c, connection: { ...connection, ownProject: false } },
+        c.connection
+          ? c
+          : {
+              ...c,
+              connection: { ...connection, ownProject: false },
+              agentId: connection.projectId,
+            },
       ),
     ]);
     setActiveId(chat.id);
@@ -312,11 +341,17 @@ export default function App() {
     setMenuOpen(false);
   }
 
-  function disconnectAgent(projectId) {
-    setAgents((as) => as.filter((a) => a.projectId !== projectId));
-    setChats((cs) =>
-      cs.map((c) => (c.connection?.projectId === projectId ? { ...c, connection: null } : c)),
-    );
+  function setDefaultAgent(agentId) {
+    setConnectNotice(null);
+    setAgents((as) => setDefault(as, agentId));
+  }
+
+  function deleteAgent(agentId) {
+    const { agents: next, removed } = removeAgent(agents, agentId);
+    if (!removed) return;
+    setConnectNotice(null);
+    setAgents(next);
+    setChats((cs) => repointChats(cs, agentId, getDefaultAgent(next)));
   }
 
   function openEvidence({ runId, resultId }) {
@@ -354,9 +389,11 @@ export default function App() {
           <LogoMark />
           <span>AgentLab</span>
         </div>
-        <button type="button" className="new-chat" onClick={() => createChat()}>
-          <span aria-hidden="true">＋</span> New chat
-        </button>
+        {connectedAgents.length ? (
+          <button type="button" className="new-chat" onClick={createChat}>
+            <span aria-hidden="true">＋</span> New chat
+          </button>
+        ) : null}
         <nav aria-label="Recent chats">
           <div className="sidebar-heading-row">
             <p className="sidebar-heading">Recent chats</p>
@@ -428,14 +465,14 @@ export default function App() {
             className={`agent-manager-button${view === 'agents' ? ' selected' : ''}`}
             onClick={openAgentManager}
           >
-            <span className={`connection-dot${lastConnection ? ' connected' : ''}`} aria-hidden="true" />
+            <span className={`connection-dot${connectedAgents.length ? ' connected' : ''}`} aria-hidden="true" />
             <span className="agent-manager-text">
               Agent Manager
-              <span className="connection-label truncate" title={lastConnection?.model}>
-                {agents.length > 1
-                  ? `${agents.length} agents connected`
-                  : lastConnection
-                    ? `Connected · ${lastConnection.model}`
+              <span className="connection-label truncate" title={connectedAgents[0]?.model}>
+                {connectedAgents.length > 1
+                  ? `Connected · ${connectedAgents.length} agents`
+                  : connectedAgents.length
+                    ? `Connected · ${connectedAgents[0].model}`
                     : 'Not connected'}
               </span>
             </span>
@@ -467,15 +504,16 @@ export default function App() {
           <div>
             <header className="page-head">
               <h1>Agent Manager</h1>
-              <span className={agents.length ? 'good-text' : 'bad-text'} role="status">
-                {agents.length === 1
-                  ? 'Agent connected'
-                  : agents.length
-                    ? `${agents.length} agents connected`
-                    : 'Not connected'}
+              <span className={connectedAgents.length ? 'good-text' : 'bad-text'} role="status">
+                {connectedAgents.length ? 'Connected' : 'Not connected'}
               </span>
             </header>
             <div className="chat-narrow agents-narrow">
+              {connectNotice ? (
+                <p className="good-text" role="status">
+                  {connectNotice}
+                </p>
+              ) : null}
               {agents.length && !changingAgent ? (
                 <>
                   <ul className="agent-list">
@@ -484,28 +522,66 @@ export default function App() {
                         <section className="card connected-agent" aria-label={agent.name || agent.model}>
                           <h2>{agent.name || 'Connected agent'}</h2>
                           <dl className="agent-details">
+                            <dt>Status</dt>
+                            <dd className={isConnected(agent, nowMs) ? 'good-text' : 'bad-text'}>
+                              {isConnected(agent, nowMs) ? 'Connected' : 'Not connected'}
+                              {agent.isDefault ? ' · Default' : ''}
+                            </dd>
                             <dt>Model</dt>
                             <dd>{agent.model}</dd>
                             <dt>Endpoint</dt>
                             <dd>{agent.endpoint}</dd>
                           </dl>
                           <div className="connect-actions">
-                            <button type="button" className="btn-secondary" onClick={() => createChat(agent)}>
-                              New chat with this agent
-                            </button>
                             <button
                               type="button"
                               className="btn-secondary"
-                              onClick={() => disconnectAgent(agent.projectId)}
+                              onClick={() => createChat(agent)}
+                              disabled={!connectedAgents.length}
+                              title={connectedAgents.length ? undefined : 'Connect an agent first'}
                             >
-                              Disconnect
+                              New chat with this agent
                             </button>
+                            {!agent.isDefault && isConnected(agent, nowMs) ? (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => setDefaultAgent(agent.id)}
+                              >
+                                Set as default
+                              </button>
+                            ) : null}
+                            {agent.isDefault ? (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                disabled
+                                title="The default agent can't be deleted"
+                              >
+                                Delete
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => deleteAgent(agent.id)}
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </section>
                       </li>
                     ))}
                   </ul>
-                  <button type="button" className="btn-secondary" onClick={() => setChangingAgent(true)}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setConnectNotice(null);
+                      setChangingAgent(true);
+                    }}
+                  >
                     Connect another agent
                   </button>
                 </>
@@ -513,6 +589,7 @@ export default function App() {
                 <>
                   <p className="muted">Connect an agent here to use it in new chats.</p>
                   <ConnectForm
+                    agents={agents}
                     onConnect={connectAgent}
                     onCancel={agents.length ? () => setChangingAgent(false) : undefined}
                   />
@@ -523,6 +600,8 @@ export default function App() {
         ) : view === 'chat' && activeChat ? (
           <ChatView
             chat={activeChat}
+            agents={agents}
+            nowMs={nowMs}
             agentKeys={agentKeys}
             onPatch={patchChat}
             onOpenAgentManager={openAgentManager}
@@ -535,6 +614,7 @@ export default function App() {
             patchDash={patchDash}
             chatCredentialId={chatCredentialId}
             onContinueInChat={continueInChat}
+            onOpenAgentManager={openAgentManager}
           />
         )}
         </Suspense>
