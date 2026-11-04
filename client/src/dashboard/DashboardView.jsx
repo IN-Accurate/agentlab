@@ -203,9 +203,18 @@ function RunEvalDialog({ versions, credentialId, onClose, onDone }) {
   );
 }
 
-export default function DashboardView({ dash, patchDash, chatCredentialId, onContinueInChat }) {
+export default function DashboardView({
+  dash,
+  patchDash,
+  chatCredentialId,
+  onContinueInChat,
+  showToast,
+  onTestInNewChat,
+}) {
   const [dialog, setDialog] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [pendingDeleteProject, setPendingDeleteProject] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
   const projects = useFetch('projects', () => api('/v1/projects?limit=100'));
 
   useEffect(() => {
@@ -240,34 +249,103 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
 
   const project = projects.data.items.find((p) => p.id === dash.projectId) ?? projects.data.items[0];
 
+  async function deleteCurrentProject() {
+    if (!project?.id || deletingProject) return;
+    setDeletingProject(true);
+    try {
+      await api(`/v1/projects/${project.id}`, { method: 'DELETE' });
+      const remaining = projects.data.items.filter((p) => p.id !== project.id);
+      patchDash({
+        projectId: remaining[0]?.id ?? null,
+        runId: null,
+        resultId: null,
+        traceId: null,
+        review: null,
+        spanId: null,
+        runVersion: 'all',
+        traceVersion: 'all',
+        compareA: null,
+        compareB: null,
+      });
+      projects.reload();
+      if (showToast) {
+        showToast({ message: `Project "${project.name}" deleted` });
+      }
+    } catch (err) {
+      if (showToast) {
+        showToast({ message: `Failed to delete project: ${err.message}` });
+      }
+    } finally {
+      setDeletingProject(false);
+      setPendingDeleteProject(false);
+    }
+  }
+
   return (
     <div className="dashboard">
       <header className="page-head">
-        <select
-          className="project-select"
-          aria-label="Project"
-          value={project.id}
-          onChange={(e) =>
-            patchDash({
-              projectId: e.target.value,
-              runId: null,
-              resultId: null,
-              traceId: null,
-              review: null,
-              spanId: null,
-              runVersion: 'all',
-              traceVersion: 'all',
-              compareA: null,
-              compareB: null,
-            })
-          }
-        >
-          {projects.data.items.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+        <div className="project-select-group">
+          <select
+            className="project-select"
+            aria-label="Project"
+            value={project.id}
+            onChange={(e) => {
+              setPendingDeleteProject(false);
+              patchDash({
+                projectId: e.target.value,
+                runId: null,
+                resultId: null,
+                traceId: null,
+                review: null,
+                spanId: null,
+                runVersion: 'all',
+                traceVersion: 'all',
+                compareA: null,
+                compareB: null,
+              });
+            }}
+          >
+            {projects.data.items.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {pendingDeleteProject ? (
+            <span className="project-del-confirm" role="group" aria-label="Confirm project deletion">
+              <span className="project-del-text">Delete &ldquo;{project.name}&rdquo;?</span>
+              <button
+                type="button"
+                className="project-del-btn-yes"
+                disabled={deletingProject}
+                onClick={deleteCurrentProject}
+              >
+                {deletingProject ? 'Deleting…' : 'Delete'}
+              </button>
+              <button
+                type="button"
+                className="project-del-btn-cancel"
+                disabled={deletingProject}
+                onClick={() => setPendingDeleteProject(false)}
+              >
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="project-del-trigger"
+              title={`Delete project "${project.name}"`}
+              aria-label={`Delete project "${project.name}"`}
+              onClick={() => setPendingDeleteProject(true)}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+            </button>
+          )}
+        </div>
         {(dash.tab === 'overview' || dash.tab === 'runs') && (
           <div className="connect-actions">
             <button type="button" className="btn-secondary" onClick={() => setImporting(true)}>
@@ -328,6 +406,8 @@ export default function DashboardView({ dash, patchDash, chatCredentialId, onCon
           patchDash={patchDash}
           chatCredentialId={chatCredentialId}
           onOpenReview={(review) => patchDash({ tab: 'improvements', review })}
+          showToast={showToast}
+          onTestInNewChat={onTestInNewChat}
         />
       ) : (
         <ImprovementsTab

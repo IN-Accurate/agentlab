@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { useFetch } from '../hooks.js';
-import { Empty, ErrorBox, Spinner, fmtTime, shortId } from '../ui.jsx';
+import { Empty, ErrorBox, Modal, Spinner, fmtPct, fmtTime, shortId } from '../ui.jsx';
 
 const TYPE_LABELS = {
   llm: 'LLM',
@@ -92,6 +92,105 @@ function Waterfall({ rows, selectedId, onSelect }) {
   );
 }
 
+function TestCaseModal({ testCase, onClose, onInspectInRuns, onTestInNewChat }) {
+  const [assertions, setAssertions] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!testCase?.id) return;
+    setLoading(true);
+    api(`/v1/test-cases/${testCase.id}/assertions`)
+      .then((data) => setAssertions(Array.isArray(data) ? data : (data.items ?? [])))
+      .catch(() => setAssertions([]))
+      .finally(() => setLoading(false));
+  }, [testCase?.id]);
+
+  if (!testCase) return null;
+
+  return (
+    <Modal title={`Test case ${shortId(testCase.id)}`} onClose={onClose}>
+      <div className="test-modal-content">
+        <div className="section-head">
+          <span className="muted">
+            Origin: <strong>{testCase.origin ?? 'from_trace'}</strong>
+            {testCase.source_trace_id ? (
+              <span> · Source trace <code>tr_{shortId(testCase.source_trace_id)}</code></span>
+            ) : null}
+          </span>
+          <span className={`verdict ${testCase.split === 'holdout' ? 'neutral' : 'good'}`}>
+            {testCase.split ?? 'dev'} split
+          </span>
+        </div>
+
+        <p className="metric-label">Input</p>
+        <div className="card" style={{ padding: '12px', margin: '4px 0 12px 0' }}>
+          <p style={{ margin: 0 }}>{testCase.input || '—'}</p>
+        </div>
+
+        <p className="metric-label">Expected</p>
+        <div className="card" style={{ padding: '12px', margin: '4px 0 12px 0' }}>
+          {testCase.expected && Object.keys(testCase.expected).length > 0 ? (
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {JSON.stringify(testCase.expected, null, 2)}
+            </pre>
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>
+              No custom expected output configured (preserves original input for regression testing).
+            </p>
+          )}
+        </div>
+
+        <p className="metric-label">Assertions ({assertions?.length ?? 0})</p>
+        {loading ? (
+          <Spinner label="Loading assertions…" />
+        ) : assertions?.length ? (
+          <ul style={{ margin: '4px 0 16px 0', paddingLeft: '20px' }}>
+            {assertions.map((a, i) => (
+              <li key={a.id ?? i} className="muted">
+                <strong>{a.type}</strong>: {JSON.stringify(a.spec ?? {})}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted" style={{ margin: '4px 0 16px 0' }}>
+            No custom assertions attached. Tests are evaluated against determinism and LLM judges.
+          </p>
+        )}
+
+        <div className="modal-actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Close
+          </button>
+          {onTestInNewChat ? (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => {
+                onClose();
+                onTestInNewChat(testCase.id);
+              }}
+            >
+              Test in new chat →
+            </button>
+          ) : null}
+          {onInspectInRuns ? (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                onClose();
+                onInspectInRuns(testCase);
+              }}
+            >
+              Inspect in Runs →
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function TracesTab({
   projectId,
   versions,
@@ -100,9 +199,14 @@ export default function TracesTab({
   patchDash,
   chatCredentialId,
   onOpenReview,
+  showToast,
+  onTestInNewChat,
 }) {
   const [notice, setNotice] = useState('');
   const [working, setWorking] = useState('');
+  const [viewingCase, setViewingCase] = useState(null);
+  const [latestCreatedTest, setLatestCreatedTest] = useState(null);
+
   const versionFilter = dash.traceVersion ?? 'all';
   const statusFilter = dash.traceStatus ?? 'all';
 
@@ -122,19 +226,62 @@ export default function TracesTab({
     () => api(`/v1/traces/${traceId}`),
   );
 
+  const testCases = useFetch(
+    projectId ? `cases-${projectId}` : null,
+    () => api(`/v1/projects/${projectId}/test-cases?limit=200`),
+  );
+
+  const traceDiagnoses = useFetch(
+    traceId ? `diagnoses-${traceId}` : null,
+    () => api(`/v1/diagnoses?trace_id=${traceId}`),
+  );
+
+  const existingCase = useMemo(() => {
+    if (!traceId) return null;
+    return (testCases.data?.items ?? []).find((c) => c.source_trace_id === traceId) ?? null;
+  }, [testCases.data, traceId]);
+
+  const activeCase = latestCreatedTest?.source_trace_id === traceId ? latestCreatedTest : existingCase;
+
+  const existingDiagnosis = useMemo(() => {
+    return (traceDiagnoses.data?.items ?? [])[0] ?? null;
+  }, [traceDiagnoses.data]);
+
   const rows = useMemo(() => flattenTree(detail.data?.span_tree ?? []), [detail.data]);
   const spanId = dash.spanId ?? rows[0]?.node.id ?? null;
   const span = rows.find((r) => r.node.id === spanId)?.node ?? null;
 
   async function createTest() {
     if (!traceId || working) return;
+    if (activeCase) {
+      setViewingCase(activeCase);
+      setNotice(`Created test ${shortId(activeCase.id)}.`);
+      showToast?.({
+        title: 'Test ready',
+        message: 'Created test',
+        testId: activeCase.id,
+        actionLabel: 'Test in new chat →',
+        onAction: () => onTestInNewChat?.(activeCase.id, projectId),
+      });
+      return;
+    }
     setWorking('test');
     setNotice('');
     try {
       const created = await api(`/v1/projects/${projectId}/test-cases/from-trace/${traceId}`, {
         method: 'POST',
+        body: JSON.stringify({}),
       });
+      setLatestCreatedTest(created);
+      testCases.reload();
       setNotice(`Created test ${shortId(created.id)}.`);
+      showToast?.({
+        title: 'Test created',
+        message: 'Created test',
+        testId: created.id,
+        actionLabel: 'Test in new chat →',
+        onAction: () => onTestInNewChat?.(created.id, projectId),
+      });
     } catch (e) {
       setNotice(e?.message ?? 'Could not create a test from this trace.');
     } finally {
@@ -152,7 +299,45 @@ export default function TracesTab({
         method: 'POST',
         body: JSON.stringify(body),
       });
-      onOpenReview({ diagnosisId: diagnosis.id });
+
+      traceDiagnoses.reload();
+
+      // Ensure a regression test case exists for repair engine
+      let targetCase = activeCase;
+      if (!targetCase) {
+        try {
+          targetCase = await api(`/v1/projects/${projectId}/test-cases/from-trace/${traceId}`, {
+            method: 'POST',
+            body: JSON.stringify({}),
+          });
+          setLatestCreatedTest(targetCase);
+          testCases.reload();
+        } catch {
+          // It's ok if creating target test fails; diagnosis is still recorded
+        }
+      }
+
+      let repairId = null;
+      let repairError = null;
+      if (chatCredentialId && targetCase) {
+        try {
+          const repair = await api(`/v1/diagnoses/${diagnosis.id}/repairs`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+          });
+          repairId = repair.id;
+        } catch (err) {
+          repairError = err?.message ?? 'Could not propose a repair.';
+        }
+      } else if (!chatCredentialId) {
+        repairError = 'No credential configured to generate automated repairs.';
+      }
+
+      onOpenReview({
+        diagnosisId: diagnosis.id,
+        repairId,
+        repairError,
+      });
     } catch (e) {
       setNotice(e?.message ?? 'Could not diagnose this trace.');
     } finally {
@@ -220,9 +405,25 @@ export default function TracesTab({
             </ul>
           )}
           {traceId ? (
-            <button type="button" className="link" onClick={createTest} disabled={!!working}>
-              Create test from trace →
-            </button>
+            <div className="rail-actions">
+              <button type="button" className="link" onClick={createTest} disabled={!!working}>
+                {working === 'test' ? 'Creating test…' : 'Create test from trace →'}
+              </button>
+              {activeCase ? (
+                <p className="muted" style={{ margin: '4px 0 0 0', fontSize: '0.85rem' }}>
+                  Created test{' '}
+                  <button
+                    type="button"
+                    className="link test-id-link"
+                    onClick={() => setViewingCase(activeCase)}
+                    title="Click to view test details"
+                  >
+                    {shortId(activeCase.id)}
+                  </button>
+                  .
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </aside>
         <div className="runs-main">
@@ -287,16 +488,68 @@ export default function TracesTab({
                   ))}
                 </section>
               ) : null}
-              <p>
-                <button type="button" className="link" onClick={diagnose} disabled={!!working}>
-                  Diagnose trace →
-                </button>
-              </p>
-              {notice ? <p className="muted">{notice}</p> : null}
+              <div className="trace-action-footer">
+                <p>
+                  <button type="button" className="link" onClick={diagnose} disabled={!!working}>
+                    {working === 'diagnose' ? 'Diagnosing trace…' : 'Diagnose trace →'}
+                  </button>
+                </p>
+                {activeCase ? (
+                  <p className="muted">
+                    Created test{' '}
+                    <button
+                      type="button"
+                      className="link test-id-link"
+                      onClick={() => setViewingCase(activeCase)}
+                      title="Click to view test details"
+                    >
+                      {shortId(activeCase.id)}
+                    </button>
+                    .
+                  </p>
+                ) : notice ? (
+                  <p className="muted">{notice}</p>
+                ) : null}
+
+                {existingDiagnosis ? (
+                  <div className="card trace-diagnosis-card">
+                    <div className="section-head">
+                      <strong>Diagnosed: {existingDiagnosis.rule}</strong>
+                      <span className="muted">
+                        {existingDiagnosis.confidence !== null && existingDiagnosis.confidence !== undefined
+                          ? `${fmtPct(existingDiagnosis.confidence)} confidence`
+                          : ''}
+                      </span>
+                    </div>
+                    {existingDiagnosis.evidence?.rationale ? (
+                      <p className="muted" style={{ margin: '6px 0' }}>
+                        {existingDiagnosis.evidence.rationale}
+                      </p>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => onOpenReview({ diagnosisId: existingDiagnosis.id })}
+                    >
+                      View diagnosis in Improvements →
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </>
           )}
         </div>
       </div>
+      {viewingCase ? (
+        <TestCaseModal
+          testCase={viewingCase}
+          onClose={() => setViewingCase(null)}
+          onTestInNewChat={(id) => onTestInNewChat?.(id, projectId)}
+          onInspectInRuns={(c) => {
+            patchDash({ tab: 'runs', splitFilter: c.split ?? 'all' });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

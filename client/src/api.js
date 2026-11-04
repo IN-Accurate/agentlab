@@ -34,12 +34,25 @@ export async function proposeFix(resultId, credentialId) {
   const diagnosis = await api(`/v1/run-results/${resultId}/diagnose`, { method: 'POST', body });
   if (!credentialId) return diagnosis;
   try {
-    await api(`/v1/diagnoses/${diagnosis.id}/repairs`, { method: 'POST', body });
+    const repair = await api(`/v1/diagnoses/${diagnosis.id}/repairs`, { method: 'POST', body });
+    return { ...diagnosis, repairId: repair.id };
   } catch (error) {
     // The diagnosis is saved either way, so the review still opens.
     return { ...diagnosis, repairError: error?.message ?? 'Could not propose a repair.' };
   }
-  return diagnosis;
+}
+
+export async function proposeTraceFix(traceId, credentialId) {
+  const body = JSON.stringify(credentialId ? { credential_id: credentialId } : {});
+  const diagnosis = await api(`/v1/traces/${traceId}/diagnose`, { method: 'POST', body });
+  if (!credentialId) return diagnosis;
+  try {
+    const repair = await api(`/v1/diagnoses/${diagnosis.id}/repairs`, { method: 'POST', body });
+    return { ...diagnosis, repairId: repair.id };
+  } catch (error) {
+    // The diagnosis is saved either way, so the review still opens.
+    return { ...diagnosis, repairError: error?.message ?? 'Could not propose a repair.' };
+  }
 }
 
 export async function streamChat(projectId, body, onEvent, { signal } = {}) {

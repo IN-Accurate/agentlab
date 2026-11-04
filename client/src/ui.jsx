@@ -154,3 +154,44 @@ export function fmtTime(iso) {
 export function shortId(id) {
   return String(id ?? '').slice(0, 8);
 }
+
+export function Toast({ toast, onClose }) {
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(onClose, 10000);
+    return () => clearTimeout(timer);
+  }, [toast?.id, onClose]);
+
+  if (!toast) return null;
+  const { title, message, testId, onAction, actionLabel } = toast;
+
+  return (
+    <div className="toast" role="status" aria-live="polite">
+      <div className="toast-content">
+        <div className="toast-icon">✓</div>
+        <div className="toast-body">
+          {title ? <strong>{title}</strong> : null}
+          <p>
+            {message}
+            {testId ? <code className="toast-id"> {shortId(testId)}</code> : null}
+          </p>
+        </div>
+      </div>
+      <div className="toast-actions">
+        {onAction ? (
+          <button type="button" className="btn-primary toast-btn" onClick={onAction}>
+            {actionLabel ?? 'Test in new chat →'}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="btn-ghost toast-close"
+          onClick={onClose}
+          aria-label="Close notification"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}

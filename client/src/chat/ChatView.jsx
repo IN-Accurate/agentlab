@@ -107,6 +107,14 @@ export default function ChatView({
 
   useEffect(() => () => aborter.current?.abort(), []);
 
+  useEffect(() => {
+    if (chat.pendingRunMessage && conn && !chat.streaming && !chat.messages.length) {
+      const msg = chat.pendingRunMessage;
+      onPatch(chat.id, (c) => ({ ...c, pendingRunMessage: null }));
+      send(msg, '', { kind: 'run' });
+    }
+  }, [chat.id, chat.pendingRunMessage, conn, chat.streaming, chat.messages.length]);
+
   function patchMessages(map) {
     onPatch(chat.id, (c) => ({ ...c, messages: c.messages.map(map) }));
   }
@@ -133,7 +141,9 @@ export default function ChatView({
   async function send(text, context, { kind = 'chat', cardId = null } = {}) {
     if (!conn || chat.streaming) return;
     setChatError('');
-    const userMsg = { id: nextId(), role: 'user', text, kind, cards: [] };
+    const isRun = kind === 'run' || text.toLowerCase().startsWith('run test:');
+    const msgKind = isRun ? 'run' : kind;
+    const userMsg = { id: nextId(), role: 'user', text, kind: msgKind, cards: [] };
     const shell = { id: nextId(), role: 'assistant', text: '', cards: [] };
     const nextTitle = kind === 'chat' && !chat.titleSet ? titleFor(text) : null;
     onPatch(chat.id, (c) => {
